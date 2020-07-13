@@ -1,0 +1,17 @@
+build
+dist
+dummy.cabal
+*~
+*\#
+*.orig
+*.o
+*.hi
+*.tix
+*.mix
+hpcreport
+*.DS_Store
+.stack-work/
+cabal.project.local
+dist-newstyle/
+hie.yaml
+stack.yaml.lock
