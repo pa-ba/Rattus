@@ -36,6 +36,31 @@ description:
 
             .
 
+            For example, the type of streams is defined as
+
+            .
+
+            > data Str a = a ::: (O (Str a))
+
+            .
+
+            So the head of the stream is available now, but its tail
+            is only available in the next time step. Writing a @map@
+            function for this type of streams, requires us to use the
+            @Box@ modality:
+
+            .
+
+            > map :: Box (a -> b) -> Str a -> Str b
+            > map f (x ::: xs) = unbox f x ::: delay (map f (adv xs))
+
+            .
+
+            This makes sure that the function @f@ that we give to
+            @map@ is available at any time in the future.
+
+            .
+
             The core of the language is defined in the module
             "Rattus.Primitives". Note that the operations on @O@ and
             @Box@ have non-standard typing rules. Therefore, this
