@@ -17,8 +17,8 @@ module Rattus.Primitives
   ) where
 
 
--- To prevent the user from declaring instances of Stable, we do not
--- export the StableInternal class it depends on.
+-- | To prevent the user from declaring instances of Stable, we do not
+-- export the 'StableInternal' class it depends on.
 
 class StableInternal a where
 
@@ -28,9 +28,10 @@ class StableInternal a where
 -- For example, these types are stable: @Int@, @Box (a -> b)@, @Box (O
 -- Int)@, @Box (Str a -> Str b)@.
 --
--- But these types are not stable: @[Int]@ (because the list type ist
+-- But these types are not stable: @[Int]@ (because the list type is
 -- not strict), @Int -> Int@, (function type is not stable), @O
--- Delay@, @Str Int@.
+-- Int@, @Str Int@.
+
 class StableInternal a => Stable a  where
 
 -- | The "later" type modality. A value of type @O a@ is a computation
@@ -63,7 +64,7 @@ adv :: O a -> a
 adv (Delay x) = x
 
 
--- | This is the contructor for the "stable" modality 'Box':
+-- | This is the constructor for the "stable" modality 'Box':
 --
 -- >     Γ☐ ⊢ t :: 𝜏
 -- > --------------------

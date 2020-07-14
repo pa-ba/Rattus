@@ -20,7 +20,7 @@ import Rattus.Yampa
 
 
 -- | A state machine that takes inputs of type @a@ and produces output
--- of type @b@. In addition to the ouptut of type @b@ the underlying
+-- of type @b@. In addition to the output of type @b@ the underlying
 -- function also returns the new state of the state machine.
 data Trans a b = Trans (a -> (b, Trans a b))
 
@@ -48,7 +48,7 @@ runSF sf = Trans (\(a,t) -> let (s, b) = stepSF sf t a in (b, runSF (adv s)))
 -- | Turns a lazy infinite list into a stream.
 toStr :: [a] -> Str a
 toStr (x : xs) = x ::: delay (toStr xs)
-toStr _ = error "runRatt: input terminated"
+toStr _ = error "toStr: input terminated"
 
 -- | Turns a stream into a lazy infinite list.
 fromStr :: Str a -> [a]

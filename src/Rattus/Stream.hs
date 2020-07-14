@@ -112,7 +112,7 @@ shift a (x ::: xs) = a ::: delay (shift x (adv xs))
   function constructs a stream that starts with the elements @a1, ...,
   an@, and then proceeds as @xs@. In particular, this means that the
   ith element of the original stream @xs@ is the (i+n)th element of
-  the new stream. In other words @shiftMany@ behaves like reapeatedly
+  the new stream. In other words @shiftMany@ behaves like repeatedly
   applying @shift@ for each element in the list. -}
 shiftMany :: Stable a => List a -> Str a -> Str a
 shiftMany l xs = run l Nil xs where

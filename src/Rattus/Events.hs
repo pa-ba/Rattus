@@ -1,6 +1,6 @@
 {-# OPTIONS -fplugin=Rattus.Plugin #-}
 
--- | Programing with many-shot events, i.e. events that may occur zero
+-- | Programming with many-shot events, i.e. events that may occur zero
 -- or more times.
 
 

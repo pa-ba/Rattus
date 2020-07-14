@@ -1,7 +1,7 @@
 {-# OPTIONS -fplugin=Rattus.Plugin #-}
 {-# LANGUAGE TypeOperators #-}
 
--- | Programing with single shot events, i.e. events that may occur at
+-- | Programming with single shot events, i.e. events that may occur at
 -- most once.
 
 module Rattus.Event
@@ -81,7 +81,7 @@ await2 :: Stable b => b -> Event a -> Event (a :* b)
 await2 b (Wait ea) = Wait (delay await2 <** b <*> ea)
 await2 b (Now  a)  = Now  (a :* b)
 
--- | Synchronize two events. The resulting event occurs after both
+-- | Synchronise two events. The resulting event occurs after both
 -- events have occurred (coinciding with whichever event occurred
 -- last.
 await :: (Stable a, Stable b) => Event a -> Event b -> Event(a :* b)
