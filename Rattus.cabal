@@ -11,7 +11,7 @@ description:
             necessary for Rattus. What follows is a brief
             introduction to the language and its usage. A more
             detailed introduction can be found in this
-            <docs/paper.pdf paper>.
+            <src/docs/paper.pdf paper>.
             
             .
             
@@ -52,8 +52,8 @@ description:
             
             .
 
-            In addition, one must mark the functions that are written
-            in Rattus:
+            In addition, one must annotate the functions that are
+            written in Rattus:
 
             .
             
@@ -61,7 +61,7 @@ description:
 
             .
 
-            Or mark the whole module as a Rattus module:
+            Or annotate the whole module as a Rattus module:
             
             .
 
@@ -82,6 +82,12 @@ description:
             > {-# ANN sums Rattus #-}
             > sums :: Str Int -> Str Int
             > sums = scan (box (+)) 0
+
+            .
+
+            The 
+            <docs/src/Rattus.Stream.html source code of the Rattus.Stream module>
+            provides more examples on how to program in Rattus.
 
 homepage:            https://github.com/pa-ba/Rattus
 License:             BSD3
