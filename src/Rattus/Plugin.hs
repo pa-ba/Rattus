@@ -13,6 +13,7 @@ import Rattus.Plugin.Utils
 import Prelude hiding ((<>))
 import GhcPlugins
 
+import qualified Data.Set as Set
 import Control.Monad
 import Data.Maybe
 import Data.Data hiding (tyConName)
@@ -67,19 +68,17 @@ transform guts b@(Rec bs) = do
   tr <- liftM or (mapM (shouldTransform guts . fst) bs)
   if tr then
     case bs of
-      [(v,e)] -> do
-          --putMsg (text "check Rattus definition: " <> ppr v)
-          --putMsg (ppr e)
-          valid <- checkExpr (emptyCtx (Just v)) e
-          if valid then do
-            e' <- strictifyExpr e
-            return (Just $ Rec [(v,e')])
+      [] -> return (Just $ Rec [])
+      binds -> do
+          let vs = map fst binds
+          let es = map snd binds
+          let vs' = Set.fromList vs
+          valid <- mapM (checkExpr (emptyCtx (Just vs'))) es
+          if and valid then do
+            es' <- mapM strictifyExpr es
+            return (Just $ Rec (zip vs es'))
           else return Nothing
-      (v,_):_ -> do
-        printMessage SevError (nameSrcSpan (varName v)) (
-          text "mutual recursive definitions not supported in Rattus")
-        return Nothing
-      _ -> return (Just $ Rec [])
+
   else return (Just b)
 transform guts b@(NonRec v e) = do
     tr <- shouldTransform guts v

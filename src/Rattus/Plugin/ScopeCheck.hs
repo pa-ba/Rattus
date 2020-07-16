@@ -37,7 +37,7 @@ instance Outputable Prim where
   ppr (Prim1 p) = ppr p
   ppr (Prim2 p) = ppr p
 
-type RecDef = Var
+type RecDef = Set Var
 
 data Ctx = Ctx
   { current :: LCtx,
@@ -87,9 +87,9 @@ stabilize c = c
 data Scope = Hidden | Visible | ImplUnboxed
 
 getScope  :: Ctx -> Var -> Scope
-getScope Ctx{recDef = Just v, earlier = Just _} v'
+getScope Ctx{recDef = Just vs, earlier = Just _} v'
   -- recursive call under delay
-  | v' == v = Visible
+  | v' `Set.member` vs = Visible
 getScope Ctx{hiddenRecs = h} v
   -- recursive call that is out of scope
   | (Set.member v h) = Hidden
@@ -120,14 +120,14 @@ printMessageCheck sev cxt var doc = printMessage' sev cxt var doc >>
 
 
 
-emptyCtx :: Maybe Var -> Ctx
+emptyCtx :: Maybe (Set Var) -> Ctx
 emptyCtx mvar=
   Ctx { current =  Set.empty,
         earlier = Nothing,
         hidden = Set.empty,
         srcLoc = UnhelpfulSpan "<no location info>",
         recDef = mvar,
-        hiddenRecs = maybe Set.empty Set.singleton mvar,
+        hiddenRecs = maybe Set.empty id mvar,
         primAlias = Map.empty,
         stableTypes = Set.empty,
         stabilized = isJust mvar}
@@ -162,13 +162,18 @@ checkExpr c@Ctx{current = cur, hidden = hid, earlier = earl} (App e1 e2) =
   case isPrimExpr c e1 of
     Just (Prim1 p,v) -> case p of
       Box -> do
-        when (stabilized c)  (printMessage' SevWarning c v
+        ch <- checkExpr (stabilize c) e2
+        -- don't bother with a warning if the scopecheck fails
+        when (ch && stabilized c)  (printMessage' SevWarning c v
           (text "box nested inside another box or recursive definition can cause time leaks"))
-        checkExpr (stabilize c) e2
+        return ch
       Arr -> do
-        when (stabilized c)  (printMessage' SevWarning c v
+        ch <- checkExpr (stabilize c) e2
+        -- don't bother with a warning if the scopecheck fails
+        when (ch && stabilized c)  (printMessage' SevWarning c v
           (text "arr nested inside a box or recursive definition can cause time leaks"))
-        checkExpr (stabilize c) e2
+        return ch
+
       Unbox -> checkExpr c e2
       Delay -> case earl of
         Just _ -> printMessageCheck SevError c v (text "cannot delay more than once")
@@ -203,20 +208,22 @@ checkExpr c (Let (NonRec v e1) e2) =
     Just (p,_) -> (checkExpr (c{primAlias = Map.insert v p (primAlias c)}) e2)
     Nothing -> liftM2 (&&) (checkExpr c e1)  (checkExpr (addVars [v] c) e2)
 checkExpr _ (Let (Rec ([])) _) = return True
-checkExpr c (Let (Rec ([(v,e1)])) e2) = do
-    when (stabilized c) (printMessage' SevWarning c v
+checkExpr c (Let (Rec binds) e2) = do
+    r1 <- mapM (checkExpr c') es
+    r2 <- checkExpr (addVars vs c) e2
+    let r = (and r1 && r2)  
+    when (r && stabilized c) (printMessage' SevWarning c (head vs)
           (text "recursive definition nested inside a box or annother recursive definition can cause time leaks"))
-    r1 <- checkExpr c' e1
-    r2 <- checkExpr (addVars [v] c) e2
-    return (r1 && r2)
-  where c' = c {current = Set.empty,
+    return r
+  where vs = map fst binds
+        vs' = Set.fromList vs 
+        es = map snd binds
+        c' = c {current = Set.empty,
                 earlier = Nothing,
-                hidden = Set.insert v (maybe (current c) (Set.union (current c)) (earlier c)),
-                hiddenRecs = Set.insert v (hiddenRecs c),
-                recDef = Just v,
+                hidden =  vs' `Set.union` (maybe (current c) (Set.union (current c)) (earlier c)),
+                hiddenRecs = vs' `Set.union` (hiddenRecs c),
+                recDef = Just vs',
                 stabilized = True}
-checkExpr c (Let (Rec ((v,_):_)) _) =
-          printMessageCheck SevError c v (text "mutual recursive definitions not supported in Rattus")
 checkExpr c@Ctx{earlier = earl}  (Var v)
   | tcIsLiftedTypeKind $ typeKind $ varType v =
     case isPrim c v of
