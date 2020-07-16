@@ -9,33 +9,17 @@ import Rattus.Plugin.StableSolver
 import Rattus.Plugin.ScopeCheck
 import Rattus.Plugin.Strictify
 import Rattus.Plugin.Utils
+import Rattus.Plugin.Annotation
 
 import Prelude hiding ((<>))
 import GhcPlugins
+import TcRnTypes
 
 import Control.Monad
 import Data.Maybe
 import Data.Data hiding (tyConName)
 
 import System.Exit
-
-
--- | Use this type to mark a Haskell function definition as a Rattus
--- function:
---
--- > {-# ANN myFunction Rattus #-}
--- 
--- Or mark a whole module as consisting of Rattus functions only:
---
--- > {-# ANN module Rattus #-}
---
--- If you use the latter option, you can mark exceptions
--- (i.e. functions that should be treated as ordinary Haskell function
--- definitions) as follows:
---
--- > {-# ANN myFunction NotRattus #-}
-
-data Rattus = Rattus | NotRattus deriving (Typeable, Data, Show, Eq)
 
 -- | Use this to enable Rattus' plugin, either by supplying the option
 -- @-fplugin=Rattus.Plugin@ directly to GHC. or by including the
@@ -45,9 +29,13 @@ data Rattus = Rattus | NotRattus deriving (Typeable, Data, Show, Eq)
 plugin :: Plugin
 plugin = defaultPlugin {
   installCoreToDos = install,
+  typeCheckResultAction = typechecked,
   tcPlugin = tcStable
   }
 
+
+typechecked :: [CommandLineOption] -> ModSummary -> TcGblEnv -> TcM TcGblEnv
+typechecked _ _ env = checkAll env >> return env
 
 install :: [CommandLineOption] -> [CoreToDo] -> CoreM [CoreToDo]
 install _ todo = do
@@ -70,11 +58,10 @@ transform guts b@(Rec bs) = do
       [(v,e)] -> do
           --putMsg (text "check Rattus definition: " <> ppr v)
           --putMsg (ppr e)
-          valid <- checkExpr (emptyCtx (Just v)) e
-          if valid then do
-            e' <- strictifyExpr e
-            return (Just $ Rec [(v,e')])
-          else return Nothing
+          --putMsg (text "check Rattus definition: " <> ppr v)
+          --putMsg (ppr e)
+          e' <- strictifyExpr e
+          return (Just $ Rec [(v,e')])
       (v,_):_ -> do
         printMessage SevError (nameSrcSpan (varName v)) (
           text "mutual recursive definitions not supported in Rattus")
@@ -86,11 +73,8 @@ transform guts b@(NonRec v e) = do
     if tr then do
       --putMsg (text "check Rattus definition: " <> ppr v)
       --putMsg (ppr e)
-      valid <- checkExpr (emptyCtx Nothing) e
-      if valid then do
         e' <- strictifyExpr e
         return (Just $ NonRec v e')
-      else return Nothing
     else return (Just b)
 
 getModuleAnnotations :: Data a => ModGuts -> [a]
