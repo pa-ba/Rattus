@@ -73,7 +73,7 @@ transform guts b@(Rec bs) = do
           let vs = map fst binds
           let es = map snd binds
           let vs' = Set.fromList vs
-          valid <- mapM (checkExpr (emptyCtx (Just vs'))) es
+          valid <- mapM (\ (v,e) -> checkExpr (emptyCtx (Just (vs', v))) e) binds
           if and valid then do
             es' <- mapM strictifyExpr es
             return (Just $ Rec (zip vs es'))

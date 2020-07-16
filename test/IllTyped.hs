@@ -8,7 +8,7 @@ import Prelude hiding ((<*>), map, const)
 -- Uncomment the annotation below to check that the definitions in
 -- this module don't type check
 
-{-# ANN module Rattus #-}
+-- {-# ANN module Rattus #-}
 
 
 dblDelay :: Box (O (O Int))
@@ -17,11 +17,17 @@ dblDelay = box (delay (delay 1))
 lambdaUnderDelay :: Box (O (O Int -> Int -> Int))
 lambdaUnderDelay = box (delay (\x _ -> adv x))
 
+sneakyLambdaUnderDelay :: Box (O (O Int -> Int -> Int))
+sneakyLambdaUnderDelay = box (delay (let f x _ =  adv x in f))
+
 leaky :: (() -> Bool) -> Str Bool
 leaky p = p () ::: delay (leaky (\ _ -> hd (leaky (\ _ -> True))))
 
 grec :: a
 grec = grec
+
+boxStream :: Str Int -> Box (Str Int)
+boxStream s = box (0 ::: tl s)
 
 mutualLoop :: a
 mutualLoop = mutualLoop'

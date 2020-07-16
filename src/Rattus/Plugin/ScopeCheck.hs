@@ -14,7 +14,8 @@ import qualified Data.Map as Map
 import Data.Maybe
 
 type LCtx = Set Var
-type Hidden = Set Var
+data HiddenReason = BoxApp | AdvApp | NestedRec Var
+type Hidden = Map Var HiddenReason
 
 data Prim = Prim1 Prim1 | Prim2 Prim2
 data Prim1 = Delay | Adv | Box | Unbox | Arr
@@ -42,10 +43,10 @@ type RecDef = Set Var
 data Ctx = Ctx
   { current :: LCtx,
     hidden :: Hidden,
+    hiddenRec :: Hidden,
     earlier :: Maybe LCtx,
     srcLoc :: SrcSpan,
-    recDef :: Maybe RecDef,
-    hiddenRecs :: Set Var,
+    recDef :: Maybe (RecDef,Var),
     stableTypes :: Set Var,
     primAlias :: Map Var Prim,
     stabilized :: Bool}
@@ -75,32 +76,58 @@ isPrim c v
 
 
 
-stabilize :: Ctx -> Ctx
-stabilize c = c
+stabilize :: HiddenReason -> Ctx -> Ctx
+stabilize hr c = c
   {current = Set.empty,
    earlier = Nothing,
-   hidden = maybe (current c) (Set.union (current c)) (earlier c),
+   hidden = hidden c `Map.union` Map.fromSet (const hr) ctxHid,
+   hiddenRec = hiddenRec c `Map.union` maybe Map.empty (Map.fromSet (const hr) . fst) (recDef c),
    recDef = Nothing,
    stabilized = True}
+  where ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
 
 
-data Scope = Hidden | Visible | ImplUnboxed
+data Scope = Hidden SDoc | Visible | ImplUnboxed
 
 getScope  :: Ctx -> Var -> Scope
-getScope Ctx{recDef = Just vs, earlier = Just _} v'
-  -- recursive call under delay
-  | v' `Set.member` vs = Visible
-getScope Ctx{hiddenRecs = h} v
+getScope Ctx{recDef = Just (vs, recV), earlier = e} v
+  | v `Set.member` vs =
+    case e of
+      Just _ -> Visible
+      Nothing 
+        | recV == v -> Hidden ("Recursive call to " <> ppr v <> " must occur under delay")
+        | otherwise -> Hidden ("Mutually recursice call to " <> ppr v <> " must occur under delay")
+  
+--getScope Ctx{hiddenRecs = h} v
   -- recursive call that is out of scope
-  | (Set.member v h) = Hidden
+--  | (Set.member v h) = Hidden ""
 getScope c v =
-  if Set.member v (hidden c) || maybe False (Set.member v) (earlier c)
-  then if (isStable (stableTypes c)) (varType v) then Visible
-       else Hidden
-  else if Set.member v (current c) then Visible
-       else if isTemporal (varType v) && isJust (earlier c) && userFunction v
-            then ImplUnboxed
-            else Visible
+  case Map.lookup v (hiddenRec c) of
+    Just (NestedRec rv) -> Hidden ("Recursive call to" <> ppr v <>
+                            " is not allowed as it occurs in a local recursive definiton (namely of " <> ppr rv <> ")")
+    Just BoxApp -> Hidden ("Recursive call to " <> ppr v <> " is not allowed since it occurs under a box")
+    Just AdvApp -> Hidden ("This should not happen: recursive call to " <> ppr v <> " is out of scope due to adv")
+    Nothing -> 
+      case Map.lookup v (hidden c) of
+        Just (NestedRec rv) ->
+          if (isStable (stableTypes c) (varType v)) then Visible
+          else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
+                       "It appears in a local recursive definiton (namely of " <> ppr rv <> ")"
+                       $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
+        Just BoxApp ->
+          if (isStable (stableTypes c) (varType v)) then Visible
+          else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
+                       "It occurs under " <> keyword "box" $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
+        Just AdvApp -> Hidden ("Variable " <> ppr v <> " is no longer in scope: It occurs under adv.")
+        Nothing
+          | maybe False (Set.member v) (earlier c) ->
+            if isStable (stableTypes c) (varType v) then Visible
+            else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
+                         "It occurs under delay" $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
+          | Set.member v (current c) -> Visible
+          | isTemporal (varType v) && isJust (earlier c) && userFunction v
+            -> ImplUnboxed
+          | otherwise -> Visible
 
 
 
@@ -120,14 +147,14 @@ printMessageCheck sev cxt var doc = printMessage' sev cxt var doc >>
 
 
 
-emptyCtx :: Maybe (Set Var) -> Ctx
-emptyCtx mvar=
+emptyCtx :: Maybe (Set Var,Var) -> Ctx
+emptyCtx mvar =
   Ctx { current =  Set.empty,
         earlier = Nothing,
-        hidden = Set.empty,
+        hidden = Map.empty,
+        hiddenRec = Map.empty,
         srcLoc = UnhelpfulSpan "<no location info>",
         recDef = mvar,
-        hiddenRecs = maybe Set.empty id mvar,
         primAlias = Map.empty,
         stableTypes = Set.empty,
         stabilized = isJust mvar}
@@ -162,13 +189,13 @@ checkExpr c@Ctx{current = cur, hidden = hid, earlier = earl} (App e1 e2) =
   case isPrimExpr c e1 of
     Just (Prim1 p,v) -> case p of
       Box -> do
-        ch <- checkExpr (stabilize c) e2
+        ch <- checkExpr (stabilize BoxApp c) e2
         -- don't bother with a warning if the scopecheck fails
         when (ch && stabilized c)  (printMessage' SevWarning c v
           (text "box nested inside another box or recursive definition can cause time leaks"))
         return ch
       Arr -> do
-        ch <- checkExpr (stabilize c) e2
+        ch <- checkExpr (stabilize BoxApp c) e2
         -- don't bother with a warning if the scopecheck fails
         when (ch && stabilized c)  (printMessage' SevWarning c v
           (text "arr nested inside a box or recursive definition can cause time leaks"))
@@ -180,14 +207,15 @@ checkExpr c@Ctx{current = cur, hidden = hid, earlier = earl} (App e1 e2) =
         Nothing -> checkExpr c{current = Set.empty, earlier = Just cur} e2
       Adv -> case earl of
         Just er -> checkExpr c{earlier = Nothing, current = er,
-                               hidden = hid `Set.union` cur} e2
+                               hidden = hid `Map.union` Map.fromSet (const AdvApp) cur} e2
         Nothing -> printMessageCheck SevError c v (text "can only advance under delay")
     _ -> liftM2 (&&) (checkExpr c e1)  (checkExpr c e2)
 checkExpr c (Case e v _ alts) =
     liftM2 (&&) (checkExpr c e) (liftM and (mapM (\ (_,vs,e)-> checkExpr (addVars vs c') e) alts))
   where c' = addVars [v] c
 checkExpr c@Ctx{earlier = Just _} (Lam v _) =
-  printMessageCheck SevError c v (text "lambdas may not appear under delay")
+  printMessageCheck SevError c v (text "Functions may not be defined under delay."
+                                  $$ "In order to define a function under delay, you have to wrap it in box.")
 checkExpr c (Lam v e)
   | isTyVar v || (not $ tcIsLiftedTypeKind $ typeKind $ varType v) = do
       is <- isStableConstr (varType v)
@@ -209,21 +237,22 @@ checkExpr c (Let (NonRec v e1) e2) =
     Nothing -> liftM2 (&&) (checkExpr c e1)  (checkExpr (addVars [v] c) e2)
 checkExpr _ (Let (Rec ([])) _) = return True
 checkExpr c (Let (Rec binds) e2) = do
-    r1 <- mapM (checkExpr c') es
+    r1 <- mapM (\ (v,e) -> checkExpr (c' v) e) binds
     r2 <- checkExpr (addVars vs c) e2
     let r = (and r1 && r2)  
     when (r && stabilized c) (printMessage' SevWarning c (head vs)
           (text "recursive definition nested inside a box or annother recursive definition can cause time leaks"))
     return r
   where vs = map fst binds
-        vs' = Set.fromList vs 
-        es = map snd binds
-        c' = c {current = Set.empty,
-                earlier = Nothing,
-                hidden =  vs' `Set.union` (maybe (current c) (Set.union (current c)) (earlier c)),
-                hiddenRecs = vs' `Set.union` (hiddenRecs c),
-                recDef = Just vs',
-                stabilized = True}
+        vs' = Set.fromList vs
+        ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
+        recHid = maybe ctxHid (Set.union ctxHid . fst) (recDef c)
+        c' v = c {current = Set.empty,
+                  earlier = Nothing,
+                  hidden =  hidden c `Map.union`
+                   (Map.fromSet (const (NestedRec v)) recHid),
+                  recDef = Just (vs',v),
+                  stabilized = True}
 checkExpr c@Ctx{earlier = earl}  (Var v)
   | tcIsLiftedTypeKind $ typeKind $ varType v =
     case isPrim c v of
@@ -241,7 +270,7 @@ checkExpr c@Ctx{earlier = earl}  (Var v)
              BApp -> return True
              BAppP -> return True
       _ -> case getScope c v of
-             Hidden -> printMessageCheck SevError c v (ppr v <> text " is out of scope")
+             Hidden reason -> printMessageCheck SevError c v reason
              Visible -> return True
              ImplUnboxed -> printMessageCheck SevWarning c v
                 (ppr v <> text " is an external temporal function used under delay, which may cause time leaks")
