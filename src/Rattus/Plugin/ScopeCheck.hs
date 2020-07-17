@@ -17,26 +17,15 @@ type LCtx = Set Var
 data HiddenReason = BoxApp | AdvApp | NestedRec Var
 type Hidden = Map Var HiddenReason
 
-data Prim = Prim1 Prim1 | Prim2 Prim2
-data Prim1 = Delay | Adv | Box | Unbox | Arr
-data Prim2 = DApp | BApp | DAppP | BAppP
+data Prim = Delay | Adv | Box | Unbox | Arr
 
-instance Outputable Prim1 where
+instance Outputable Prim where
   ppr Delay = "delay"
   ppr Adv = "adv"
   ppr Box = "box"
   ppr Unbox = "unbox"
   ppr Arr = "arr"
   
-instance Outputable Prim2 where
-  ppr DApp = "<*>"
-  ppr BApp = "|*|"
-  ppr DAppP = "<**"
-  ppr BAppP = "|**"
-
-instance Outputable Prim where
-  ppr (Prim1 p) = ppr p
-  ppr (Prim2 p) = ppr p
 
 type RecDef = Set Var
 
@@ -46,24 +35,20 @@ data Ctx = Ctx
     hiddenRec :: Hidden,
     earlier :: Maybe LCtx,
     srcLoc :: SrcSpan,
-    recDef :: Maybe (RecDef,Var),
+    recDef :: Maybe RecDef,
     stableTypes :: Set Var,
     primAlias :: Map Var Prim,
+    funDef :: Var,
     stabilized :: Bool}
 
 primMap :: Map FastString Prim
 primMap = Map.fromList
-  [("Delay", Prim1 Delay),
-   ("delay", Prim1 Delay),
-   ("adv", Prim1 Adv),
-   ("box", Prim1 Box),
-   ("arr", Prim1 Arr),
-   ("unbox", Prim1 Unbox),
-   ("<*>", Prim2 DApp),
-   ("<**", Prim2 DAppP),
-   ("|*|", Prim2 BApp),
-   ("|**", Prim2 BAppP)
-   ]
+  [("Delay", Delay),
+   ("delay", Delay),
+   ("adv", Adv),
+   ("box", Box),
+   ("arr", Arr),
+   ("unbox", Unbox)]
 
 
 isPrim :: Ctx -> Var -> Maybe Prim
@@ -81,7 +66,7 @@ stabilize hr c = c
   {current = Set.empty,
    earlier = Nothing,
    hidden = hidden c `Map.union` Map.fromSet (const hr) ctxHid,
-   hiddenRec = hiddenRec c `Map.union` maybe Map.empty (Map.fromSet (const hr) . fst) (recDef c),
+   hiddenRec = hiddenRec c `Map.union` maybe Map.empty (Map.fromSet (const hr)) (recDef c),
    recDef = Nothing,
    stabilized = True}
   where ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
@@ -90,7 +75,7 @@ stabilize hr c = c
 data Scope = Hidden SDoc | Visible | ImplUnboxed
 
 getScope  :: Ctx -> Var -> Scope
-getScope Ctx{recDef = Just (vs, recV), earlier = e} v
+getScope Ctx{recDef = Just (vs), funDef = recV, earlier = e} v
   | v `Set.member` vs =
     case e of
       Just _ -> Visible
@@ -147,14 +132,15 @@ printMessageCheck sev cxt var doc = printMessage' sev cxt var doc >>
 
 
 
-emptyCtx :: Maybe (Set Var,Var) -> Ctx
-emptyCtx mvar =
+emptyCtx :: Maybe (Set Var) -> Var -> Ctx
+emptyCtx mvar fun =
   Ctx { current =  Set.empty,
         earlier = Nothing,
         hidden = Map.empty,
         hiddenRec = Map.empty,
         srcLoc = UnhelpfulSpan "<no location info>",
         recDef = mvar,
+        funDef = fun,
         primAlias = Map.empty,
         stableTypes = Set.empty,
         stabilized = isJust mvar}
@@ -187,7 +173,7 @@ checkExpr c (App e e') | isType e' || (not $ tcIsLiftedTypeKind $ typeKind $ exp
   = checkExpr c e
 checkExpr c@Ctx{current = cur, hidden = hid, earlier = earl} (App e1 e2) =
   case isPrimExpr c e1 of
-    Just (Prim1 p,v) -> case p of
+    Just (p,v) -> case p of
       Box -> do
         ch <- checkExpr (stabilize BoxApp c) e2
         -- don't bother with a warning if the scopecheck fails
@@ -246,29 +232,21 @@ checkExpr c (Let (Rec binds) e2) = do
   where vs = map fst binds
         vs' = Set.fromList vs
         ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
-        recHid = maybe ctxHid (Set.union ctxHid . fst) (recDef c)
+        recHid = maybe ctxHid (Set.union ctxHid) (recDef c)
         c' v = c {current = Set.empty,
                   earlier = Nothing,
                   hidden =  hidden c `Map.union`
                    (Map.fromSet (const (NestedRec v)) recHid),
-                  recDef = Just (vs',v),
+                  recDef = Just (vs'),
+                  funDef = v,
                   stabilized = True}
-checkExpr c@Ctx{earlier = earl}  (Var v)
+checkExpr c (Var v)
   | tcIsLiftedTypeKind $ typeKind $ varType v =
     case isPrim c v of
-      Just (Prim1 _) ->
-        printMessageCheck SevError c v (ppr v <> text " must be applied to an argument")
-      Just (Prim2 p) ->
-        let dapp = case earl of
-              Just _ ->
-                printMessageCheck SevError c v (ppr v <> text " may not be used under delay")
-              _ -> return True
- 
-        in case p of
-             DApp -> dapp
-             DAppP -> dapp
-             BApp -> return True
-             BAppP -> return True
+      Just p ->
+        case p of
+          Unbox -> return True
+          _ -> printMessage SevError (nameSrcSpan (varName (funDef c))) ("Defining an alias for " <> ppr v <> " is not allowed") >> return False
       _ -> case getScope c v of
              Hidden reason -> printMessageCheck SevError c v reason
              Visible -> return True
@@ -276,8 +254,6 @@ checkExpr c@Ctx{earlier = earl}  (Var v)
                 (ppr v <> text " is an external temporal function used under delay, which may cause time leaks")
 
   | otherwise = return True
-
-
 
 
 

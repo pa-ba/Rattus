@@ -20,11 +20,17 @@ map3 f = run
   where run (x ::: xs) = unbox f x ::: (delay run <*> xs)
 
 
+stableDelay :: Stable a => a -> O a
+stableDelay = delay
+
+
+newDelay :: a -> O a
+newDelay = delay
+
 data Input a = Input {jump :: !a, move :: !Move}
 data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove
 
 type Inp a b = Input a
-
 
 
 -- The compiler plugin should detect that Input is a stable type and

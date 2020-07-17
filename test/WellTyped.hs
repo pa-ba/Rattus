@@ -19,13 +19,21 @@ map3 :: Box (a -> b) -> Str a -> Str b
 map3 f = run
   where run (x ::: xs) = unbox f x ::: (delay run <*> xs)
 
-
 -- mutual recursive definition
 bar1 :: Box (a -> b) -> Str a -> Str b
 bar1 f (x ::: xs) = unbox f x ::: (delay (bar2 f) <*> xs)
 
 bar2 :: Box (a -> b) -> Str a -> Str b
 bar2 f  (x ::: xs) = unbox f x ::: (delay (bar1 f) <*> xs)
+
+
+applyDelay :: O (O (a -> b)) -> O (O a) -> O (O b)
+applyDelay f x = delay (adv f <*> adv x)
+
+
+stableDelay :: Stable a => a -> O a
+stableDelay x = delay x
+
 
 data Input a = Input {jump :: !a, move :: !Move}
 data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove

@@ -73,7 +73,7 @@ transform guts b@(Rec bs) = do
           let vs = map fst binds
           let es = map snd binds
           let vs' = Set.fromList vs
-          valid <- mapM (\ (v,e) -> checkExpr (emptyCtx (Just (vs', v))) e) binds
+          valid <- mapM (\ (v,e) -> checkExpr (emptyCtx (Just vs') v) e) binds
           if and valid then do
             es' <- mapM strictifyExpr es
             return (Just $ Rec (zip vs es'))
@@ -85,7 +85,7 @@ transform guts b@(NonRec v e) = do
     if tr then do
       --putMsg (text "check Rattus definition: " <> ppr v)
       --putMsg (ppr e)
-      valid <- checkExpr (emptyCtx Nothing) e
+      valid <- checkExpr (emptyCtx Nothing v) e
       if valid then do
         e' <- strictifyExpr e
         return (Just $ NonRec v e')

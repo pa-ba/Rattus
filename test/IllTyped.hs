@@ -29,6 +29,21 @@ grec = grec
 boxStream :: Str Int -> Box (Str Int)
 boxStream s = box (0 ::: tl s)
 
+boxStream' :: Str Int -> Box (Str Int)
+boxStream' s = box s
+
+
+intDelay :: Int -> O Int
+intDelay = delay
+
+intAdv :: O Int -> Int
+intAdv = adv
+
+
+newDelay :: a -> O a
+newDelay x = delay x
+
+
 mutualLoop :: a
 mutualLoop = mutualLoop'
 
@@ -45,7 +60,11 @@ constUnstable a = run
 mapUnboxed :: (a -> b) -> Str a -> Str b
 mapUnboxed f = run
   where run (x ::: xs) = f x ::: delay (run (adv xs))
-
+  
+mapUnboxedMutual :: (a -> b) -> Str a -> Str b
+mapUnboxedMutual f = run
+  where run (x ::: xs) = f x ::: delay (run' (adv xs))
+        run' (x ::: xs) = f x ::: delay (run (adv xs))
 
 data Input = Input {jump :: !Bool, move :: Move}
 data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove
