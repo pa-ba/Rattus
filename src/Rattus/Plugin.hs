@@ -46,7 +46,8 @@ data Rattus = Rattus | NotRattus deriving (Typeable, Data, Show, Eq)
 plugin :: Plugin
 plugin = defaultPlugin {
   installCoreToDos = install,
-  tcPlugin = tcStable
+  tcPlugin = tcStable,
+  pluginRecompile = purePlugin
   }
 
 

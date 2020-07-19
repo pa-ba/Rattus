@@ -45,10 +45,11 @@ hd (x ::: _) = x
 tl :: Str a -> O (Str a)
 tl (_ ::: xs) = xs
 
-
+{-# NOINLINE [1] map #-}
 -- | Apply a function to each element of a stream.
 map :: Box (a -> b) -> Str a -> Str b
 map f (x ::: xs) = unbox f x ::: delay (map f (adv xs))
+
 
 -- | Construct a stream that has the same given value at each step.
 const :: Stable a => a -> Str a
@@ -65,6 +66,7 @@ constBox a = unbox a ::: delay (constBox a)
 unfold :: Stable a => Box (a -> a) -> a -> Str a
 unfold f x = x ::: delay (unfold f (unbox f x))
 
+{-# NOINLINE [1] scan #-}
 -- | Similar to Haskell's 'scanl'.
 --
 -- > scan (box f) x (v1 ::: v2 ::: v3 ::: ... ) == (x `f` v1) ::: ((x `f` v1) `f` v2) ::: ...
@@ -80,7 +82,6 @@ scan f acc (a ::: as) =  acc' ::: delay (scan f acc' (adv as))
 scanMap :: (Stable b) => Box(b -> a -> b) -> Box (b -> c) -> b -> Str a -> Str c
 scanMap f p acc (a ::: as) =  unbox p acc' ::: delay (scanMap f p acc' (adv as))
   where acc' = unbox f acc a
-
 
 
 -- | 'scanMap2' is similar to 'scanMap' but takes two input streams.
@@ -129,3 +130,13 @@ shiftMany l xs = run l Nil xs where
 integral :: (Stable a, VectorSpace a s) => a -> Str s -> Str a -> Str a
 integral acc (t ::: ts) (a ::: as) = acc' ::: delay (integral acc' (adv ts) (adv as))
   where acc' = acc ^+^ (t *^ a)
+
+
+
+{-# RULES
+  "map/map" forall f g xs.
+    map f (map g xs) = map (box (unbox f . unbox g)) xs ;
+
+  "map/scan" forall f p acc as.
+    map p (scan f acc as) = scanMap f p acc as
+#-}

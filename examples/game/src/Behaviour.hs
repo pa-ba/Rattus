@@ -82,7 +82,7 @@ padStep (delta :* pos) inp = (delta' :* pos')
         pos' = min (max (-size_x/2+20) (pos + delta' * time inp)) (size_x/2-20)
 
 padPos :: Str (Input) -> Str Float
-padPos = scanMap (box padStep) (box snd') (0:* 0)
+padPos xs = map (box snd') (scan (box padStep) (0:* 0) xs)
 
 
 padObj :: Float -> Object
