@@ -53,45 +53,58 @@ plugin = defaultPlugin {
 
 install :: [CommandLineOption] -> [CoreToDo] -> CoreM [CoreToDo]
 install _ todo = do
-  return (CoreDoPluginPass "Rattus" transformProgram : todo)
+  return (CoreDoPluginPass "Rattus scopecheck" scopecheckProgram : insertTodo [] todo
+          ++ [])
+
+    where strPass = CoreDoPluginPass "Rattus strictify" strictifyProgram
+          insertTodo acc (td@ CoreDoSimplify {} : tds) = reverse acc ++ [td,strPass] ++ tds
+          insertTodo acc (td : tds) = insertTodo (td : acc) tds
+          insertTodo _ [] = strPass : todo
 
 
-transformProgram :: ModGuts -> CoreM ModGuts
-transformProgram guts = do
-  newBindsM <- mapM (transform guts) (mg_binds guts)
-  case sequence newBindsM of
-    Nothing -> liftIO exitFailure
-    Just newBinds -> return $ guts { mg_binds = newBinds }
+strictifyProgram :: ModGuts -> CoreM ModGuts
+strictifyProgram guts = do
+  newBinds <- mapM (strictify guts) (mg_binds guts)
+  return guts { mg_binds = newBinds }
 
-
-transform :: ModGuts -> CoreBind -> CoreM (Maybe CoreBind)
-transform guts b@(Rec bs) = do
+strictify :: ModGuts -> CoreBind -> CoreM (CoreBind)
+strictify guts b@(Rec bs) = do
   tr <- liftM or (mapM (shouldTransform guts . fst) bs)
-  if tr then
-    case bs of
-      [] -> return (Just $ Rec [])
-      binds -> do
-          let vs = map fst binds
-          let es = map snd binds
-          let vs' = Set.fromList vs
-          valid <- mapM (\ (v,e) -> checkExpr (emptyCtx (Just vs') v) e) binds
-          if and valid then do
-            es' <- mapM strictifyExpr es
-            return (Just $ Rec (zip vs es'))
-          else return Nothing
-
-  else return (Just b)
-transform guts b@(NonRec v e) = do
+  if tr then do
+    let vs = map fst bs
+    let es = map snd bs
+    es' <- mapM strictifyExpr es
+    return (Rec (zip vs es'))
+  else return b
+strictify guts b@(NonRec v e) = do
     tr <- shouldTransform guts v
     if tr then do
-      --putMsg (text "check Rattus definition: " <> ppr v)
-      --putMsg (ppr e)
+      e' <- strictifyExpr e
+      return (NonRec v e')
+    else return b
+
+
+scopecheckProgram :: ModGuts -> CoreM ModGuts
+scopecheckProgram guts = do
+  res <- mapM (scopecheck guts) (mg_binds guts)
+  if and res then return guts else liftIO exitFailure
+
+
+scopecheck :: ModGuts -> CoreBind -> CoreM Bool
+scopecheck guts (Rec bs) = do
+  tr <- liftM or (mapM (shouldTransform guts . fst) bs)
+  if tr then do
+    let vs = map fst bs
+    let vs' = Set.fromList vs
+    valid <- mapM (\ (v,e) -> checkExpr (emptyCtx (Just vs') v) e) bs
+    return (and valid)
+  else return True
+scopecheck guts (NonRec v e) = do
+    tr <- shouldTransform guts v
+    if tr then do
       valid <- checkExpr (emptyCtx Nothing v) e
-      if valid then do
-        e' <- strictifyExpr e
-        return (Just $ NonRec v e')
-      else return Nothing
-    else return (Just b)
+      return valid
+    else return True
 
 getModuleAnnotations :: Data a => ModGuts -> [a]
 getModuleAnnotations guts = anns'

@@ -45,9 +45,9 @@ hd (x ::: _) = x
 tl :: Str a -> O (Str a)
 tl (_ ::: xs) = xs
 
-{-# NOINLINE [1] map #-}
 -- | Apply a function to each element of a stream.
 map :: Box (a -> b) -> Str a -> Str b
+{-# NOINLINE [1] map #-}
 map f (x ::: xs) = unbox f x ::: delay (map f (adv xs))
 
 
@@ -66,12 +66,12 @@ constBox a = unbox a ::: delay (constBox a)
 unfold :: Stable a => Box (a -> a) -> a -> Str a
 unfold f x = x ::: delay (unfold f (unbox f x))
 
-{-# NOINLINE [1] scan #-}
 -- | Similar to Haskell's 'scanl'.
 --
 -- > scan (box f) x (v1 ::: v2 ::: v3 ::: ... ) == (x `f` v1) ::: ((x `f` v1) `f` v2) ::: ...
 --
 -- Note: Unlike 'scanl', 'scan' starts with @x `f` v1@, not @x@.
+{-# NOINLINE [1] scan #-}
 scan :: (Stable b) => Box(b -> a -> b) -> b -> Str a -> Str b
 scan f acc (a ::: as) =  acc' ::: delay (scan f acc' (adv as))
   where acc' = unbox f acc a
@@ -79,6 +79,7 @@ scan f acc (a ::: as) =  acc' ::: delay (scan f acc' (adv as))
 -- | 'scanMap' is a composition of 'map' and 'scan':
 --
 -- > scanMap f g x === map g . scan f x
+{-# NOINLINE [1] scanMap #-}
 scanMap :: (Stable b) => Box(b -> a -> b) -> Box (b -> c) -> b -> Str a -> Str c
 scanMap f p acc (a ::: as) =  unbox p acc' ::: delay (scanMap f p acc' (adv as))
   where acc' = unbox f acc a
@@ -95,6 +96,7 @@ zipWith :: Box(a -> b -> c) -> Str a -> Str b -> Str c
 zipWith f (a ::: as) (b ::: bs) = unbox f a b ::: delay (zipWith f (adv as) (adv bs))
 
 -- | Similar to 'Prelude.zip' on Haskell lists.
+{-# NOINLINE [1] zip #-}
 zip :: Str a -> Str b -> Str (a:*b)
 zip (a ::: as) (b ::: bs) =  (a :* b) ::: delay (zip (adv as) (adv bs))
 
@@ -137,6 +139,19 @@ integral acc (t ::: ts) (a ::: as) = acc' ::: delay (integral acc' (adv ts) (adv
   "map/map" forall f g xs.
     map f (map g xs) = map (box (unbox f . unbox g)) xs ;
 
-  "map/scan" forall f p acc as.
-    map p (scan f acc as) = scanMap f p acc as
+  "map/scan" forall (f :: Box(b -> a -> b)) (p :: Box (b -> c)) (acc :: b) (as :: Str a).
+    map p (scan f acc as) = scanMap f p acc as ;
+
+  "scan/scan" forall f g b c as.
+    scan g c (scan f b as) =
+      let f' = unbox f; g' = unbox g in
+      scanMap (box (\ (b:*c) a -> let b' = f' b a in (b':* g' c b'))) (box snd') (b:*c) as ;
+
+  "scan/scanMap" forall f g p b c as.
+    scan g c (scanMap f p b as) =
+      let f' = unbox f; g' = unbox g; p' = unbox p in
+      scanMap (box (\ (b:*c) a -> let b' = f' (p' b) a in (b':* g' c b'))) (box snd') (b:*c) as ;
+
+  "zip/map" forall xs ys f.
+    map f (zip xs ys) = let f' = unbox f in zipWith (box (\ x y -> f' (x :* y))) xs ys
 #-}

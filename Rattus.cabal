@@ -188,3 +188,12 @@ Test-Suite well-typed
   build-depends:       Rattus, base, containers
   ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
 
+
+Test-Suite rewrite
+  type:                exitcode-stdio-1.0
+  main-is:             Rewrite.hs
+  hs-source-dirs:      test
+  default-language:    Haskell2010
+  build-depends:       Rattus, base, containers
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2 -ddump-rule-firings
+

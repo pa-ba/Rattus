@@ -92,7 +92,7 @@ padObj p (x :* y) =
   else Nothing
 
 ballPos :: Str (Float :* Input) -> Str Pos
-ballPos = scanMap (box ballStep) (box fst') ((0:*0):*(20:*50))
+ballPos xs = map (box fst') (scan (box ballStep) ((0:*0):*(20:*50)) xs)
 
 
 ballStep :: (Pos :* Vel) -> (Float :* Input) -> (Pos :* Vel)
