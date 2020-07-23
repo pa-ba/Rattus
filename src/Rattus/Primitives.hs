@@ -17,11 +17,6 @@ module Rattus.Primitives
   ) where
 
 
--- | To prevent the user from declaring instances of Stable, we do not
--- export the 'StableInternal' class it depends on.
-
-class StableInternal a where
-
 -- | A type is @Stable@ if it is a strict type and the later modality
 -- @O@ and function types only occur under @Box@.
 --
@@ -32,7 +27,7 @@ class StableInternal a where
 -- not strict), @Int -> Int@, (function type is not stable), @O
 -- Int@, @Str Int@.
 
-class StableInternal a => Stable a  where
+class  Stable a  where
 
 -- | The "later" type modality. A value of type @O a@ is a computation
 -- that produces a value of type @a@ in the next time step. Use
@@ -50,7 +45,7 @@ data Box a = Box a
 -- > --------------------
 -- >  Γ ⊢ delay t :: O 𝜏
 --
-{-# NOINLINE [1] delay #-}
+{-# INLINE [1] delay #-}
 delay :: a -> O a
 delay x = Delay x
 
@@ -62,7 +57,7 @@ delay x = Delay x
 -- > ---------------------
 -- >  Γ ✓ Γ' ⊢ adv t :: 𝜏
 --
-{-# NOINLINE [1] adv #-}
+{-# INLINE [1] adv #-}
 adv :: O a -> a
 adv (Delay x) = x
 
@@ -76,7 +71,7 @@ adv (Delay x) = x
 -- where Γ☐ is obtained from Γ by removing ✓ and any variables @x ::
 -- 𝜏@, where 𝜏 is not a stable type.
 
-{-# NOINLINE [1] box #-}
+{-# INLINE [1] box #-}
 box :: a -> Box a
 box x = Box x
 
@@ -87,7 +82,7 @@ box x = Box x
 -- >   Γ ⊢ t :: Box 𝜏
 -- > ------------------
 -- >  Γ ⊢ unbox t :: 𝜏
-{-# NOINLINE [1] unbox #-}
+{-# INLINE [1] unbox #-}
 unbox :: Box a -> a
 unbox (Box d) = d
 

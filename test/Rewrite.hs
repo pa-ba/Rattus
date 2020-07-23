@@ -4,10 +4,7 @@ import Rattus
 import Rattus.Stream
 import Prelude hiding ((<*>), map,zip)
 
-
-
 {-# ANN module Rattus #-}
-
 
 twice :: Str Int -> Str Int
 twice = map (box (+1)) . map (box (+1))
