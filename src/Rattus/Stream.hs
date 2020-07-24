@@ -52,11 +52,13 @@ map f (x ::: xs) = unbox f x ::: delay (map f (adv xs))
 
 
 -- | Construct a stream that has the same given value at each step.
+{-# NOINLINE [1] const #-}
 const :: Stable a => a -> Str a
 const a = a ::: delay (const a)
 
 -- | Variant of 'const' that allows any type @a@ as argument as long
 -- as it is boxed.
+{-# NOINLINE [1] constBox #-}
 constBox :: Box a -> Str a
 constBox a = unbox a ::: delay (constBox a)
 
@@ -136,10 +138,14 @@ integral acc (t ::: ts) (a ::: as) = acc' ::: delay (integral acc' (adv ts) (adv
 
 
 {-# RULES
+
+  "const/map" forall (f :: Stable b => Box (a -> b))  x.
+    map f (const x) = let x' = unbox f x in const x' ;
+
   "map/map" forall f g xs.
     map f (map g xs) = map (box (unbox f . unbox g)) xs ;
 
-  "map/scan" forall (f :: Box(b -> a -> b)) (p :: Box (b -> c)) (acc :: b) (as :: Str a).
+  "map/scan" forall f p acc as.
     map p (scan f acc as) = scanMap f p acc as ;
 
   "scan/scan" forall f g b c as.

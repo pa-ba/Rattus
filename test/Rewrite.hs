@@ -2,7 +2,7 @@ module Main (module Main) where
 
 import Rattus
 import Rattus.Stream
-import Prelude hiding ((<*>), map,zip)
+import Prelude hiding ((<*>), map,zip,const)
 
 {-# ANN module Rattus #-}
 
@@ -23,6 +23,9 @@ twiceScanMap xs = scan (box (+)) 0  (scanMap (box (+)) (box (+1)) 0 xs)
 
 zipMap :: Str Int -> Str Int -> Str Int
 zipMap xs ys = map (box (\ (x:*y) -> x + y)) (zip xs ys)
+
+constMap :: Str Int
+constMap = map (box (+1)) (const 5)
 
 {-# ANN main NotRattus #-}
 main = putStrLn "This is just to test the rewrite rules"
