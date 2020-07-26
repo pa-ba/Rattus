@@ -31,17 +31,21 @@ import Prelude hiding ((<*>))
 
 
 -- | Applicative operator for 'O'.
+{-# INLINE (<*>) #-}
 (<*>) :: O (a -> b) -> O a -> O b
 f <*> x = delay (adv f (adv x))
 
 -- | Variant of '<*>' where the argument is of a stable type..
+{-# INLINE (<**) #-}
 (<**) :: Stable a => O (a -> b) -> a -> O b
 f <** x = delay (adv f x)
 
 -- | Applicative operator for 'Box'.
+{-# INLINE (|*|) #-}
 (|*|) :: Box (a -> b) -> Box a -> Box b
 f |*| x = box (unbox f (unbox x))
 
 -- | Variant of '|*|' where the argument is of a stable type..
+{-# INLINE (|**) #-}
 (|**) :: Stable a => Box (a -> b) -> a -> Box b
 f |** x = box (unbox f x)

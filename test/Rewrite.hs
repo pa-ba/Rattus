@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeOperators #-}
+
 module Main (module Main) where
 
 import Rattus
@@ -26,6 +28,16 @@ zipMap xs ys = map (box (\ (x:*y) -> x + y)) (zip xs ys)
 
 constMap :: Str Int
 constMap = map (box (+1)) (const 5)
+
+
+
+apply :: O (Int -> Int -> Int) -> O Int -> O Int -> O Int
+apply f x y = f <*> x <*> y
+
+
+apply' :: O (Int -> Int -> Int) -> Int -> O Int -> O Int
+apply' f x y = f <** x <*> y
+
 
 {-# ANN main NotRattus #-}
 main = putStrLn "This is just to test the rewrite rules"
