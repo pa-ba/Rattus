@@ -115,6 +115,7 @@ description:
             provides more examples on how to program in Rattus.
 
 homepage:            https://github.com/pa-ba/Rattus
+bug-reports:         https://github.com/pa-ba/Rattus/issues
 License:             BSD3
 License-file:        LICENSE
 copyright:           Copyright (C) 2020 Patrick Bahr
