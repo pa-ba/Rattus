@@ -177,14 +177,16 @@ checkExpr c@Ctx{current = cur, hidden = hid, earlier = earl} (App e1 e2) =
       Box -> do
         ch <- checkExpr (stabilize BoxApp c) e2
         -- don't bother with a warning if the scopecheck fails
-        when (ch && stabilized c)  (printMessage' SevWarning c v
-          (text "box nested inside another box or recursive definition can cause time leaks"))
+        when (ch && stabilized c && not (isStable (stableTypes c) (exprType e2)))
+          (printMessage' SevWarning c v
+           (text "When box is used inside another box or a recursive definition, it can cause time leaks unless applied to an expression of stable type"))
         return ch
       Arr -> do
         ch <- checkExpr (stabilize BoxApp c) e2
         -- don't bother with a warning if the scopecheck fails
-        when (ch && stabilized c)  (printMessage' SevWarning c v
-          (text "arr nested inside a box or recursive definition can cause time leaks"))
+        when (ch && stabilized c && not (isStable (stableTypes c) (exprType e2)))
+          (printMessage' SevWarning c v
+            (text "When arr is used inside box or a recursive definition, it can cause time leaks unless applied to an expression of stable type"))
         return ch
 
       Unbox -> checkExpr c e2
