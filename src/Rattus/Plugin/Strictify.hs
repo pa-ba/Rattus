@@ -8,7 +8,7 @@ strictifyExpr :: CoreExpr -> CoreM CoreExpr
 strictifyExpr (Let (NonRec b e1) e2) = do
   e1' <- strictifyExpr e1
   e2' <- strictifyExpr e2
-  return (Let (NonRec b e1') e2')
+  return (Case e1' b (exprType e2) [(DEFAULT, [], e2')])
 strictifyExpr (Case e b t alts) = do
   e' <- strictifyExpr e
   alts' <- mapM (\(c,args,e) -> fmap (\e' -> (c,args,e')) (strictifyExpr e)) alts
