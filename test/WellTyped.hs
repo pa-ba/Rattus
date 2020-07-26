@@ -9,6 +9,11 @@ import qualified Data.Set as Set
 
 {-# ANN module Rattus #-}
 
+scanBox :: Box(b -> a -> Box b) -> b -> Str a -> Str b
+scanBox f acc (a ::: as) =  unbox acc' ::: delay (scanBox f (unbox acc') (adv as))
+  where acc' = unbox f acc a
+
+
 map1 :: Box (a -> b) -> Str a -> Str b
 map1 f (x ::: xs) = unbox f x ::: delay (map1 f (adv xs))
 
