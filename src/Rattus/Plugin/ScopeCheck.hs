@@ -14,7 +14,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 
 type LCtx = Set Var
-data HiddenReason = BoxApp | AdvApp | NestedRec Var
+data HiddenReason = BoxApp | AdvApp | NestedRec Var | FunDef
 type Hidden = Map Var HiddenReason
 
 data Prim = Delay | Adv | Box | Unbox | Arr
@@ -59,6 +59,16 @@ isPrim c v
   if isRattModule mod then Map.lookup name primMap
   else Nothing
 
+stabilizeLater :: Ctx -> Ctx
+stabilizeLater c =
+  if isJust (earlier c)
+  then c {earlier = Nothing,
+          hidden = hid,
+          hiddenRec = maybe (hiddenRec c) (Map.union (hidden c) . Map.fromSet (const FunDef)) (recDef c),
+          recDef = Nothing}
+  else c {earlier = Nothing,
+          hidden = hid}
+  where hid = maybe (hidden c) (Map.union (hidden c) . Map.fromSet (const FunDef)) (earlier c)
 
 
 stabilize :: HiddenReason -> Ctx -> Ctx
@@ -90,7 +100,8 @@ getScope c v =
   case Map.lookup v (hiddenRec c) of
     Just (NestedRec rv) -> Hidden ("Recursive call to" <> ppr v <>
                             " is not allowed as it occurs in a local recursive definiton (namely of " <> ppr rv <> ")")
-    Just BoxApp -> Hidden ("Recursive call to " <> ppr v <> " is not allowed since it occurs under a box")
+    Just BoxApp -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs under a box")
+    Just FunDef -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs in a function that is defined under delay")
     Just AdvApp -> Hidden ("This should not happen: recursive call to " <> ppr v <> " is out of scope due to adv")
     Nothing -> 
       case Map.lookup v (hidden c) of
@@ -104,6 +115,8 @@ getScope c v =
           else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
                        "It occurs under " <> keyword "box" $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
         Just AdvApp -> Hidden ("Variable " <> ppr v <> " is no longer in scope: It occurs under adv.")
+        Just FunDef -> if (isStable (stableTypes c) (varType v)) then Visible
+          else Hidden ("Variable " <> ppr v <> " is no longer in scope: It occurs in a function that is defined under a delay, is a of a non-stable type " <> ppr (varType v) <> ", and is bound outside delay")
         Nothing
           | maybe False (Set.member v) (earlier c) ->
             if isStable (stableTypes c) (varType v) then Visible
@@ -201,9 +214,6 @@ checkExpr c@Ctx{current = cur, hidden = hid, earlier = earl} (App e1 e2) =
 checkExpr c (Case e v _ alts) =
     liftM2 (&&) (checkExpr c e) (liftM and (mapM (\ (_,vs,e)-> checkExpr (addVars vs c') e) alts))
   where c' = addVars [v] c
-checkExpr c@Ctx{earlier = Just _} (Lam v _) =
-  printMessageCheck SevError c v (text "Functions may not be defined under delay."
-                                  $$ "In order to define a function under delay, you have to wrap it in box.")
 checkExpr c (Lam v e)
   | isTyVar v || (not $ tcIsLiftedTypeKind $ typeKind $ varType v) = do
       is <- isStableConstr (varType v)
@@ -211,7 +221,7 @@ checkExpr c (Lam v e)
             Nothing -> c
             Just t -> c{stableTypes = Set.insert t (stableTypes c)}
       checkExpr c' e
-  | otherwise = checkExpr (addVars [v] c) e
+  | otherwise = checkExpr (addVars [v] (stabilizeLater c)) e
 checkExpr _ (Type _)  = return True
 checkExpr _ (Lit _)  = return True
 checkExpr _ (Coercion _)  = return True

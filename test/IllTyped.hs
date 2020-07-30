@@ -11,14 +11,27 @@ import Prelude hiding ((<*>), map, const)
 -- {-# ANN module Rattus #-}
 
 
-dblDelay :: Box (O (O Int))
-dblDelay = box (delay (delay 1))
+-- This function will produce a confusing scoping error message since
+-- GHC will inline the let-binding before Rattus' scope checker gets
+-- to see it.
+advDelay :: O (O a) -> O a
+advDelay y = delay (let x = adv y in adv x)
 
-lambdaUnderDelay :: Box (O (O Int -> Int -> Int))
-lambdaUnderDelay = box (delay (\x _ -> adv x))
+dblDelay :: O (O Int)
+dblDelay = delay (delay 1)
 
-sneakyLambdaUnderDelay :: Box (O (O Int -> Int -> Int))
-sneakyLambdaUnderDelay = box (delay (let f x _ =  adv x in f))
+lambdaUnderDelay :: O (O Int -> Int -> Int)
+lambdaUnderDelay = delay (\x _ -> adv x)
+
+sneakyLambdaUnderDelay :: O (O Int -> Int -> Int)
+sneakyLambdaUnderDelay = delay (let f x _ =  adv x in f)
+
+
+lambdaUnderDelay' :: O Int -> O (Int -> O Int)
+lambdaUnderDelay' x = delay (\_ -> x)
+
+sneakyLambdaUnderDelay' :: O Int -> O (Int -> O Int)
+sneakyLambdaUnderDelay' x = delay (let f _ =  x in f)
 
 leaky :: (() -> Bool) -> Str Bool
 leaky p = p () ::: delay (leaky (\ _ -> hd (leaky (\ _ -> True))))

@@ -9,6 +9,20 @@ import qualified Data.Set as Set
 
 {-# ANN module Rattus #-}
 
+
+lambdaUnderDelay :: O (Int -> Int -> Int)
+lambdaUnderDelay = delay (\x _ -> x)
+
+sneakyLambdaUnderDelay :: O (Int -> Int -> Int)
+sneakyLambdaUnderDelay = delay (let f x _ =  x in f)
+
+
+lambdaUnderDelay' :: Int -> O (Int -> Int)
+lambdaUnderDelay' x = delay (\_ -> x)
+
+sneakyLambdaUnderDelay' :: Int -> O (Int -> Int)
+sneakyLambdaUnderDelay' x = delay (let f _ =  x in f)
+
 scanBox :: Box(b -> a -> Box b) -> b -> Str a -> Str b
 scanBox f acc (a ::: as) =  unbox acc' ::: delay (scanBox f (unbox acc') (adv as))
   where acc' = unbox f acc a
