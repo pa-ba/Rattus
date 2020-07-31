@@ -31,6 +31,7 @@ data Event a = Now !a | Wait (O (Event a))
 {-# ANN module Rattus #-}
 
 -- | Apply a function to the value of the event (if it ever occurs).
+{-# NOINLINE [1] map #-}
 map :: Box (a -> b) -> Event a -> Event b
 map f (Now x) = Now (unbox f x)
 map f (Wait x) = Wait (delay (map f) <*> x)
@@ -105,3 +106,10 @@ triggerMap f (x ::: xs) =
   case unbox f x of
     Just' y  -> Now y
     Nothing' -> Wait (delay (triggerMap f) <*> xs)
+
+{-# RULES
+
+  "map/map" forall f g xs.
+    map f (map g xs) = map (box (unbox f . unbox g)) xs ;
+
+#-}

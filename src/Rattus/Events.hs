@@ -29,6 +29,7 @@ type Events a = Str (Maybe' a)
 {-# ANN module Rattus #-}
 
 -- | Apply a function to the values of the event (every time it occurs).
+{-# NOINLINE [1] map #-}
 map :: Box (a -> b) -> Events a -> Events b
 map f (Just' x ::: xs) =  (Just' (unbox f x)) ::: delay (map f (adv xs))
 map f (Nothing' ::: xs) = Nothing' ::: delay (map f (adv xs))
@@ -69,3 +70,12 @@ trigger p (x ::: xs) = x' ::: (delay (trigger p) <*> xs)
 -- value.
 triggerMap :: Box (a -> Maybe' b) -> Str a -> Events b
 triggerMap = S.map
+
+
+
+{-# RULES
+
+  "map/map" forall f g xs.
+    map f (map g xs) = map (box (unbox f . unbox g)) xs ;
+
+#-}

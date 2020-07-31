@@ -1,4 +1,4 @@
-# Introduction
+# Introduction [![Build Status](https://travis-ci.com/pa-ba/Rattus.svg?branch=master)](https://travis-ci.com/pa-ba/Rattus)
 
 This library implements the Rattus programming language as an embedded
 DSL. To this end the library provides a GHC plugin that performs the

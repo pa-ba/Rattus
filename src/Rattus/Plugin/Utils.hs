@@ -8,6 +8,7 @@ module Rattus.Plugin.Utils (
   isGhcModule,
   getNameModule,
   isStable,
+  isStrict,
   isTemporal,
   userFunction,
   isType)
@@ -19,6 +20,7 @@ import GhcPlugins
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Char
+import Data.Maybe
 
 isType Type {} = True
 isType (App e _) = isType e
@@ -80,7 +82,7 @@ getNameModule v = do
 
 -- | The set of stable built-in types.
 ghcStableTypes :: Set FastString
-ghcStableTypes = Set.fromList ["Int","Bool","Float","Double","Char"]
+ghcStableTypes = Set.fromList ["Int","Bool","Float","Double","Char", "IO"]
 
 
 newtype TypeCmp = TC Type
@@ -166,7 +168,66 @@ isStableRec c d pr t = do
         _ -> False
 
 
-          
+
+isStrict :: Type -> Bool
+isStrict t = isStrictRec 0 Set.empty t
+
+-- | Check whether the given type is stable. This check may use
+-- 'Stable' constraints from the context.
+
+isStrictRec :: Int -> Set TypeCmp -> Type -> Bool
+-- To prevent infinite recursion (when checking recursive types) we
+-- keep track of previously checked types. This, however, is not
+-- enough for non-regular data types. Hence we also have a counter.
+isStrictRec d _ _ | d == 100 = True
+isStrictRec _ pr t | Set.member (TC t) pr = True
+isStrictRec d pr t = do
+  let pr' = Set.insert (TC t) pr
+  let (_,t') = splitForAllTys t
+  let (c, tys) = repSplitAppTys t'
+  if isJust (getTyVar_maybe c) then and (map (isStrictRec (d+1) pr') tys)
+  else  case splitTyConApp_maybe t' of
+    Nothing -> isJust (getTyVar_maybe t)
+    Just (con,args) ->
+      case getNameModule con of
+        Nothing -> False
+        Just (name,mod)
+          -- If it's a Rattus type constructor check if it's a box
+          | isRattModule mod && (name == "Box" || name == "O") -> True
+            -- If its a built-in type check the set of stable built-in types
+          | isGhcModule mod -> name `Set.member` ghcStableTypes
+          {- deal with type synonyms (does not seem to be necessary (??))
+           | Just (subst,ty,[]) <- expandSynTyCon_maybe con args ->
+             isStrictRec c (d+1) pr' (substTy (extendTvSubstList emptySubst subst) ty) -}
+          | isFunTyCon con -> True
+          | isAlgTyCon con -> 
+            case algTyConRhs con of
+              DataTyCon {data_cons = cons, is_enum = enum}
+                | enum -> True
+                | and $ (map (isSrcStrictOrDelay args)) $ cons ->
+                  and  (map check cons)
+                | otherwise -> False
+                where check con = case dataConInstSig con args of
+                        (_, _,tys) -> and (map (isStrictRec (d+1) pr') tys)
+              TupleTyCon {} -> null args
+              _ -> False
+          | otherwise -> False
+            
+
+
+
+
+isSrcStrictOrDelay :: [Type] -> DataCon -> Bool
+isSrcStrictOrDelay args con = and (zipWith check tys (dataConSrcBangs con))
+  where (_, _,tys) = dataConInstSig con args 
+        check ty b = isSrcStrict' b || isDelay ty
+        isDelay ty = case splitTyConApp_maybe ty of
+                       Just (con,_) ->
+                         case getNameModule con of
+                           Just (name,mod) | isRattModule mod && name == "O" -> True
+                           _ -> False
+                       _ -> False
+
 isSrcStrict' (HsSrcBang _ _ SrcStrict) = True
 isSrcStrict' _ = False
 

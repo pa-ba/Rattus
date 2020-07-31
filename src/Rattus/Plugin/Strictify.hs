@@ -1,44 +1,55 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Rattus.Plugin.Strictify where
 import Prelude hiding ((<>))
 import Rattus.Plugin.Utils
 import GhcPlugins
 
 
-strictifyExpr :: CoreExpr -> CoreM CoreExpr
-strictifyExpr (Let (NonRec b e1) e2) = do
-  e1' <- strictifyExpr e1
-  e2' <- strictifyExpr e2
-  return (Let (NonRec b e1') e2')
-strictifyExpr (Case e b t alts) = do
-  e' <- strictifyExpr e
-  alts' <- mapM (\(c,args,e) -> fmap (\e' -> (c,args,e')) (strictifyExpr e)) alts
-  return (Case e' b t alts')
-strictifyExpr (Let (Rec es) e) = do
-  es' <- mapM (\ (b,e) -> strictifyExpr e >>= \e'-> return (b,e')) es
-  e' <- strictifyExpr e
-  return (Let (Rec es') e')
-strictifyExpr (Lam b e) = do
-  e' <- strictifyExpr e
-  return (Lam b e')
-strictifyExpr (Cast e c) = do
-  e' <- strictifyExpr e
-  return (Cast e' c)
-strictifyExpr (Tick t e) = do
-  e' <- strictifyExpr e
-  return (Tick t e')
-strictifyExpr e@(App e1 e2)
-  | not (isType e2) && tcIsLiftedTypeKind(typeKind (exprType e2)) && not (isDelayApp e1)
-    && not (isDelayApp e2) = do
-  e1' <- strictifyExpr e1
-  e2' <- strictifyExpr e2
-  b <- mkSysLocalM (fsLit "strict") (exprType e2)
-  return $ Case e2' b (exprType e) [(DEFAULT, [], App e1' (Var b))]
-  | otherwise = do
-  e1' <- strictifyExpr e1
-  e2' <- strictifyExpr e2
-  return (App e1' e2')
-strictifyExpr e = return e
+data SCxt = SCxt {srcSpan :: SrcSpan, checkStrictData :: Bool}
 
+
+strictifyExpr :: SCxt -> CoreExpr -> CoreM CoreExpr
+strictifyExpr ss (Let (NonRec b e1) e2) = do
+  e1' <- strictifyExpr ss e1
+  e2' <- strictifyExpr ss e2
+  return (Case e1' b (exprType e2) [(DEFAULT, [], e2')])
+strictifyExpr ss (Case e b t alts) = do
+  e' <- strictifyExpr ss e
+  alts' <- mapM (\(c,args,e) -> fmap (\e' -> (c,args,e')) (strictifyExpr ss e)) alts
+  return (Case e' b t alts')
+strictifyExpr ss (Let (Rec es) e) = do
+  es' <- mapM (\ (b,e) -> strictifyExpr ss e >>= \e'-> return (b,e')) es
+  e' <- strictifyExpr ss e
+  return (Let (Rec es') e')
+strictifyExpr ss (Lam b e)
+   | not (isCoVar b) && not (isTyVar b) && tcIsLiftedTypeKind(typeKind (varType b))
+    = do
+       e' <- strictifyExpr ss e
+       b' <- mkSysLocalM (fsLit "strict") (varType b)
+       return (Lam b' (Case (varToCoreExpr b') b (exprType e) [(DEFAULT,[],e')]))
+   | otherwise = do
+       e' <- strictifyExpr ss e
+       return (Lam b e')
+strictifyExpr ss (Cast e c) = do
+  e' <- strictifyExpr ss e
+  return (Cast e' c)
+strictifyExpr ss (Tick t@(SourceNote span _) e) = do
+  e' <- strictifyExpr (ss{srcSpan = RealSrcSpan span}) e
+  return (Tick t e')
+strictifyExpr ss (App e1 e2)
+  | (checkStrictData ss && not (isType e2) && tcIsLiftedTypeKind(typeKind (exprType e2))
+        && not (isStrict (exprType e2))) = do
+      (printMessage SevWarning (srcSpan ss)
+         (text "The use of lazy type " <> ppr (exprType e2) <> " may lead to memory leaks"))
+      e1' <- strictifyExpr ss{checkStrictData = False} e1
+      e2' <- strictifyExpr ss{checkStrictData = False} e2
+      return (App e1' e2')
+  | otherwise = do
+      e1' <- strictifyExpr ss e1
+      e2' <- strictifyExpr ss e2
+      return (App e1' e2')
+strictifyExpr _ss e = return e
 
 
 isDelayApp (App e _) = isDelayApp e

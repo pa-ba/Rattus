@@ -17,6 +17,7 @@ import HsPat
 import HsBinds
 import Data.Set (Set)
 import qualified Data.Set as Set
+
 -- import Data.Map (Map)
 -- import qualified Data.Map as Map
 -- import Data.Maybe
@@ -95,9 +96,9 @@ checkBind _ _ (L l _) = return () -- TODO: do we need to check other kinds of bi
 printMessage :: Severity -> SrcSpan -> SDoc ->  TcM ()
 printMessage sev l doc = do
   dflags <- getDynFlags
-  let sty = case sev of
-                     SevError   -> defaultErrStyle dflags
-                     SevWarning -> err_sty
-                     -> defaultUserStyle dflags
-                     -> defaultDumpStyle dflags
+  -- let sty = case sev of
+  --                    SevError   -> defaultErrStyle dflags
+  --                    SevWarning -> err_sty
+  --                    _ -> defaultUserStyle dflags
+  --                    -- -> defaultDumpStyle dflags
   liftIO $ putLogMsg dflags NoReason sev l (defaultErrStyle dflags) doc

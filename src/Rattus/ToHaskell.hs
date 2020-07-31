@@ -17,6 +17,7 @@ import Data.IORef
 import Rattus.Primitives
 import Rattus.Stream
 import Rattus.Yampa
+import Rattus.Strict
 
 
 -- | A state machine that takes inputs of type @a@ and produces output
@@ -42,7 +43,7 @@ runTransducer tr = Trans run
 -- | Turn a signal function into a state machine from inputs of type
 -- @a@ and time (since last input) to output of type @b@.
 runSF :: SF a b -> Trans (a, Double) b
-runSF sf = Trans (\(a,t) -> let (s, b) = stepSF sf t a in (b, runSF (adv s)))
+runSF sf = Trans (\(a,t) -> let (s:* b) = stepSF sf t a in (b, runSF (adv s)))
 
 
 -- | Turns a lazy infinite list into a stream.

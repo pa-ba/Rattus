@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -10,8 +11,12 @@
 module Rattus.Strict
   ( List(..),
     reverse',
+    (+++),
+    listToMaybe',
+    mapMaybe',
     (:*)(..),
     Maybe'(..),
+    maybe',
    fst',
    snd',
   )where
@@ -19,6 +24,7 @@ module Rattus.Strict
 import Data.VectorSpace
 
 infixr 2 :*
+infixr 8 :!
 
 -- | Strict list type.
 data List a = Nil | !a :! !(List a)
@@ -29,6 +35,29 @@ reverse' l =  rev l Nil
   where
     rev Nil     a = a
     rev (x:!xs) a = rev xs (x:!a)
+    
+-- | Returns @'Nothing''@ on an empty list or @'Just'' a@ where @a@ is the
+-- first element of the list.
+listToMaybe' :: List a -> Maybe' a
+listToMaybe' = foldr (const . Just') Nothing'
+
+-- | Append two lists.
+(+++) :: List a -> List a -> List a
+(+++) Nil     ys = ys
+(+++) (x:!xs) ys = x :! xs +++ ys
+
+
+-- | A version of 'map' which can throw out elements.  In particular,
+-- the function argument returns something of type @'Maybe'' b@.  If
+-- this is 'Nothing'', no element is added on to the result list.  If
+-- it is @'Just'' b@, then @b@ is included in the result list.
+mapMaybe'          :: (a -> Maybe' b) -> List a -> List b
+mapMaybe' _ Nil     = Nil
+mapMaybe' f (x:!xs) =
+ let rs = mapMaybe' f xs in
+ case f x of
+  Nothing' -> rs
+  Just' r  -> r:!rs
 
 instance Foldable List where
   
@@ -56,6 +85,14 @@ instance Functor List where
 
 -- | Strict variant of 'Maybe'.
 data Maybe' a = Just' ! a | Nothing'
+
+-- | takes a default value, a function, and a 'Maybe'' value.  If the
+-- 'Maybe'' value is 'Nothing'', the function returns the default
+-- value.  Otherwise, it applies the function to the value inside the
+-- 'Just'' and returns the result.
+maybe' :: b -> (a -> b) -> Maybe' a -> b
+maybe' n _ Nothing'  = n
+maybe' _ f (Just' x) = f x
 
 -- | Strict pair type.
 data a :* b = !a :* !b

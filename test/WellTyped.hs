@@ -9,6 +9,28 @@ import qualified Data.Set as Set
 
 {-# ANN module Rattus #-}
 
+
+lambdaUnderDelay :: O (Int -> Int -> Int)
+lambdaUnderDelay = delay (\x _ -> x)
+
+sneakyLambdaUnderDelay :: O (Int -> Int -> Int)
+sneakyLambdaUnderDelay = delay (let f x _ =  x in f)
+
+
+lambdaUnderDelay' :: Int -> O (Int -> Int)
+lambdaUnderDelay' x = delay (\_ -> x)
+
+sneakyLambdaUnderDelay' :: Int -> O (Int -> Int)
+sneakyLambdaUnderDelay' x = delay (let f _ =  x in f)
+
+scanBox :: Box(b -> a -> Box b) -> b -> Str a -> Str b
+scanBox f acc (a ::: as) =  unbox acc' ::: delay (scanBox f (unbox acc') (adv as))
+  where acc' = unbox f acc a
+
+
+sumBox :: Str Int -> Str Int
+sumBox = scanBox (box (\x y -> box (x + y))) 0
+
 map1 :: Box (a -> b) -> Str a -> Str b
 map1 f (x ::: xs) = unbox f x ::: delay (map1 f (adv xs))
 
@@ -18,6 +40,21 @@ map2 f (x ::: xs) = unbox f x ::: (delay map2 <** f <*> xs)
 map3 :: Box (a -> b) -> Str a -> Str b
 map3 f = run
   where run (x ::: xs) = unbox f x ::: (delay run <*> xs)
+
+-- mutual recursive definition
+bar1 :: Box (a -> b) -> Str a -> Str b
+bar1 f (x ::: xs) = unbox f x ::: (delay (bar2 f) <*> xs)
+
+bar2 :: Box (a -> b) -> Str a -> Str b
+bar2 f  (x ::: xs) = unbox f x ::: (delay (bar1 f) <*> xs)
+
+
+applyDelay :: O (O (a -> b)) -> O (O a) -> O (O b)
+applyDelay f x = delay (adv f <*> adv x)
+
+
+stableDelay :: Stable a => a -> O a
+stableDelay x = delay x
 
 
 data Input a = Input {jump :: !a, move :: !Move}

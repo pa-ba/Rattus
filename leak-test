@@ -1,2 +1,2 @@
 #!/bin/sh
-stack test SimplyRaTT:memory-leak --test-arguments "+RTS -M10m -RTS"
+cabal test memory-leak --test-option "+RTS -M10m -RTS"

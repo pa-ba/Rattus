@@ -15,11 +15,13 @@ import Prelude hiding ((<>))
 import GhcPlugins
 import TcRnTypes
 
+import qualified Data.Set as Set
 import Control.Monad
 import Data.Maybe
 import Data.Data hiding (tyConName)
 
 import System.Exit
+
 
 -- | Use this to enable Rattus' plugin, either by supplying the option
 -- @-fplugin=Rattus.Plugin@ directly to GHC. or by including the
@@ -29,6 +31,7 @@ import System.Exit
 plugin :: Plugin
 plugin = defaultPlugin {
   installCoreToDos = install,
+  pluginRecompile = purePlugin,
   typeCheckResultAction = typechecked,
   tcPlugin = tcStable
   }
@@ -38,44 +41,54 @@ typechecked :: [CommandLineOption] -> ModSummary -> TcGblEnv -> TcM TcGblEnv
 typechecked _ _ env = checkAll env >> return env
 
 install :: [CommandLineOption] -> [CoreToDo] -> CoreM [CoreToDo]
-install _ todo = do
-  return (CoreDoPluginPass "Rattus" transformProgram : todo)
+install _ todo = return (strPass : todo)
+    where strPass = CoreDoPluginPass "Rattus strictify" strictifyProgram
 
+strictifyProgram :: ModGuts -> CoreM ModGuts
+strictifyProgram guts = do
+  newBinds <- mapM (strictify guts) (mg_binds guts)
+  return guts { mg_binds = newBinds }
 
-transformProgram :: ModGuts -> CoreM ModGuts
-transformProgram guts = do
-  newBindsM <- mapM (transform guts) (mg_binds guts)
-  case sequence newBindsM of
-    Nothing -> liftIO exitFailure
-    Just newBinds -> return $ guts { mg_binds = newBinds }
-
-
-transform :: ModGuts -> CoreBind -> CoreM (Maybe CoreBind)
-transform guts b@(Rec bs) = do
+strictify :: ModGuts -> CoreBind -> CoreM (CoreBind)
+strictify guts b@(Rec bs) = do
   tr <- liftM or (mapM (shouldTransform guts . fst) bs)
-  if tr then
-    case bs of
-      [(v,e)] -> do
-          --putMsg (text "check Rattus definition: " <> ppr v)
-          --putMsg (ppr e)
-          --putMsg (text "check Rattus definition: " <> ppr v)
-          --putMsg (ppr e)
-          e' <- strictifyExpr e
-          return (Just $ Rec [(v,e')])
-      (v,_):_ -> do
-        printMessage SevError (nameSrcSpan (varName v)) (
-          text "mutual recursive definitions not supported in Rattus")
-        return Nothing
-      _ -> return (Just $ Rec [])
-  else return (Just b)
-transform guts b@(NonRec v e) = do
+  if tr then do
+    let vs = map fst bs
+    es' <- mapM (\ (v,e) -> do
+                    lazy <- allowLazyData guts v
+                    strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy))e) bs
+    return (Rec (zip vs es'))
+  else return b
+strictify guts b@(NonRec v e) = do
     tr <- shouldTransform guts v
     if tr then do
-      --putMsg (text "check Rattus definition: " <> ppr v)
-      --putMsg (ppr e)
-        e' <- strictifyExpr e
-        return (Just $ NonRec v e')
-    else return (Just b)
+      lazy <- allowLazyData guts v
+      e' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy)) e
+      return (NonRec v e')
+    else return b
+
+
+-- scopecheckProgram :: ModGuts -> CoreM ModGuts
+-- scopecheckProgram guts = do
+--   res <- mapM (scopecheck guts) (mg_binds guts)
+--   if and res then return guts else liftIO exitFailure
+
+
+-- scopecheck :: ModGuts -> CoreBind -> CoreM Bool
+-- scopecheck guts (Rec bs) = do
+--   tr <- liftM or (mapM (shouldTransform guts . fst) bs)
+--   if tr then do
+--     let vs = map fst bs
+--     let vs' = Set.fromList vs
+--     valid <- mapM (\ (v,e) -> checkExpr (emptyCtx (Just vs') v) e) bs
+--     return (and valid)
+--   else return True
+-- scopecheck guts (NonRec v e) = do
+--     tr <- shouldTransform guts v
+--     if tr then do
+--       valid <- checkExpr (emptyCtx Nothing v) e
+--       return valid
+--     else return True
 
 getModuleAnnotations :: Data a => ModGuts -> [a]
 getModuleAnnotations guts = anns'
@@ -85,6 +98,12 @@ getModuleAnnotations guts = anns'
         anns' = mapMaybe (fromSerialized deserializeWithData . ann_value) anns
   
 
+
+
+allowLazyData :: ModGuts -> CoreBndr -> CoreM Bool
+allowLazyData guts bndr = do
+  l <- annotationsOn guts bndr :: CoreM [Rattus]
+  return (AllowLazyData `elem` l)
 
 
 shouldTransform :: ModGuts -> CoreBndr -> CoreM Bool

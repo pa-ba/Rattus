@@ -1,6 +1,6 @@
 cabal-version:       1.18
 name:                Rattus
-version:             0.1.0.0
+version:             0.2
 category:            FRP
 synopsis:            A modal FRP language
 description:
@@ -115,6 +115,7 @@ description:
             provides more examples on how to program in Rattus.
 
 homepage:            https://github.com/pa-ba/Rattus
+bug-reports:         https://github.com/pa-ba/Rattus/issues
 License:             BSD3
 License-file:        LICENSE
 copyright:           Copyright (C) 2020 Patrick Bahr
@@ -165,6 +166,7 @@ Test-Suite memory-leak
   build-depends:       Rattus, base
   ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
 
+
 Test-Suite time-leak
   type:                exitcode-stdio-1.0
   main-is:             TimeLeak.hs
@@ -188,4 +190,13 @@ Test-Suite well-typed
   default-language:    Haskell2010
   build-depends:       Rattus, base, containers
   ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
+
+
+Test-Suite rewrite
+  type:                exitcode-stdio-1.0
+  main-is:             Rewrite.hs
+  hs-source-dirs:      test
+  default-language:    Haskell2010
+  build-depends:       Rattus, base, containers
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2 -ddump-rule-firings
 

@@ -45,7 +45,7 @@ handleEvent e (x,y,pad,s,_) = (x,y,pad,s,inp)
 
 step :: Float -> World -> World
 step f (_,_,_,st,b) = (x,y,pad, adv st',noInput)
-  where (st', ((x:*y):*pad)) = stepSF st (float2Double(4*f)) b 
+  where (st':* ((x:*y):*pad)) = stepSF st (float2Double(4*f)) b 
   
 
 
