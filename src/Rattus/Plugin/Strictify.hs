@@ -17,23 +17,22 @@ strictifyExpr (Let (Rec es) e) = do
   es' <- mapM (\ (b,e) -> strictifyExpr e >>= \e'-> return (b,e')) es
   e' <- strictifyExpr e
   return (Let (Rec es') e')
-strictifyExpr (Lam b e) = do
-  e' <- strictifyExpr e
-  return (Lam b e')
+strictifyExpr (Lam b e)
+   | not (isCoVar b) && not (isTyVar b) && tcIsLiftedTypeKind(typeKind (varType b))
+    = do
+       e' <- strictifyExpr e
+       b' <- mkSysLocalM (fsLit "strict") (varType b)
+       return (Lam b' (Case (varToCoreExpr b') b (exprType e) [(DEFAULT,[],e')]))
+   | otherwise = do
+       e' <- strictifyExpr e
+       return (Lam b e')
 strictifyExpr (Cast e c) = do
   e' <- strictifyExpr e
   return (Cast e' c)
 strictifyExpr (Tick t e) = do
   e' <- strictifyExpr e
   return (Tick t e')
-strictifyExpr e@(App e1 e2)
-  | not (isType e2) && tcIsLiftedTypeKind(typeKind (exprType e2)) && not (isDelayApp e1)
-    && not (isDelayApp e2) = do
-  e1' <- strictifyExpr e1
-  e2' <- strictifyExpr e2
-  b <- mkSysLocalM (fsLit "strict") (exprType e2)
-  return $ Case e2' b (exprType e) [(DEFAULT, [], App e1' (Var b))]
-  | otherwise = do
+strictifyExpr (App e1 e2) = do
   e1' <- strictifyExpr e1
   e2' <- strictifyExpr e2
   return (App e1' e2')

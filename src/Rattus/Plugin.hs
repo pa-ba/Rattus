@@ -53,18 +53,9 @@ plugin = defaultPlugin {
 
 
 install :: [CommandLineOption] -> [CoreToDo] -> CoreM [CoreToDo]
-install _ todo = do
-  df <- getDynFlags
-  return (scPass : rewrite df : strPass : todo)
+install _ todo = return (scPass : strPass : todo)
     where scPass = CoreDoPluginPass "Rattus scopecheck" scopecheckProgram
-          rewrite df = CoreDoSimplify 5 (SimplMode {
-                                          sm_names = ["rewrite"],
-                                          sm_phase = InitialPhase,
-                                          sm_dflags = df,
-                                          sm_rules = True,
-                                          sm_inline = True,
-                                          sm_case_case = False,
-                                          sm_eta_expand = True})
+
           strPass = CoreDoPluginPass "Rattus strictify" strictifyProgram
 
 strictifyProgram :: ModGuts -> CoreM ModGuts
