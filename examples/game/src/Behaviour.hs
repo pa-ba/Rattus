@@ -1,11 +1,12 @@
 {-# LANGUAGE TypeOperators #-}
+
 module Behaviour where
 
 import Rattus
 import Rattus.Stream
 import Rattus.Events hiding (map)
 import Prelude hiding ((<*>),zip,map,scan,zipWith)
-import Data.Maybe
+
 
 data Input = Input {reset :: ! Bool, move :: ! Move, time :: !Float}
 data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove
@@ -37,21 +38,21 @@ type Normal = (Float:* Float)
 -- | Objects may cause collissions. Given a position, an object checks
 -- whether a collusion occurred and if so returns the normal vector of
 -- the surface
-type Object = Pos -> Maybe Normal
+type Object = Pos -> Maybe' Normal
 
 -- | List of all static objects in the game (i.e. the walls and the
 -- ceiling)
-staticObjects :: [Object]
+staticObjects :: List Object
 staticObjects =
-  [ \(x:*y) -> if size_x/2-5 <= x then Just (-1:*0) else Nothing
-  , \(x:*y) -> if size_y/2-5 <= y then Just (0:* -1) else Nothing
-  , \(x:*y) -> if x <= -size_x/2+5 then Just (1:*0) else Nothing
-  ]
+  (\(x:*y) -> if size_x/2-5 <= x then Just' (-1:*0) else Nothing') :!
+  (\(x:*y) -> if size_y/2-5 <= y then Just' (0:* -1) else Nothing') :!
+  (\(x:*y) -> if x <= -size_x/2+5 then Just' (1:*0) else Nothing') :! Nil
+  
 
 
-checkCollision :: [Object] -> Pos -> Maybe Normal
+checkCollision :: List Object -> Pos -> Maybe' Normal
 checkCollision objs p =
-  listToMaybe $ mapMaybe (\f -> f p) (objs ++ staticObjects)
+  listToMaybe' $ mapMaybe' (\f -> f p) (objs +++ staticObjects)
 
 
 applyCollision :: Normal -> Vel -> Vel
@@ -62,9 +63,9 @@ applyCollision (nx:*ny) (vx:*vy)
   | ny < 0 && vy > 0 = (vx:* -vy)
   | otherwise = (vx:*vy)
 
-velTrans :: [Object] -> Pos -> Vel -> Float -> Vel
+velTrans :: List Object -> Pos -> Vel -> Float -> Vel
 velTrans objs p v t = (x:* y)
-  where (x:*y) = maybe v (`applyCollision` v) (checkCollision objs p)
+  where (x:*y) = maybe' v (`applyCollision` v) (checkCollision objs p)
 
 
 
@@ -88,8 +89,8 @@ padPos xs = map (box snd') (scan (box padStep) (0:* 0) xs)
 padObj :: Float -> Object
 padObj p (x :* y) =
   if y <= -size_y/2+13 && y >= -size_y/2+5  && x >= p-20 && x <= p+20
-  then Just (0 :* 1)
-  else Nothing
+  then Just' (0 :* 1)
+  else Nothing'
 
 ballPos :: Str (Float :* Input) -> Str Pos
 ballPos xs = map (box fst') (scan (box ballStep) ((0:*0):*(20:*50)) xs)
@@ -97,7 +98,7 @@ ballPos xs = map (box fst') (scan (box ballStep) ((0:*0):*(20:*50)) xs)
 
 ballStep :: (Pos :* Vel) -> (Float :* Input) -> (Pos :* Vel)
 ballStep (p :* v) (pad :* inp) = (p .+. (time inp .*. v') :* v')
-  where v' = velTrans [padObj pad] p v (time inp)
+  where v' = velTrans (padObj pad :! Nil) p v (time inp)
 
 
 ballTrig :: Input -> Maybe' (Str (Float :* Input) -> Str Pos)

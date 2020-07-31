@@ -11,11 +11,6 @@ import Prelude hiding ((<*>), map)
 
 {-# ANN module Rattus #-}
 
-
-lazyAdd :: (a, Int) -> ((), Int) -> ((), Int)
-lazyAdd = (\ (_,x) y -> fmap (+x) y )
-
-
 scan3 :: (Stable a) => Box(a -> a -> a) -> Box (a -> Bool) -> a -> Str a -> Str a
 scan3 f p acc (a ::: as) =  (if unbox p a then acc else a)
       ::: (delay (scan3 f p acc') <*> as)
@@ -60,7 +55,7 @@ recurse n (_ : xs) = recurse (n-1) xs
 recurse _ [] = putStrLn "the impossible happened: stream terminated"
 
 {-# ANN main NotRattus #-}
-main = do  
+main  = do  
   let x =  fromStr $ test1 1 (toStr [1..])
   recurse 10000000 x
 

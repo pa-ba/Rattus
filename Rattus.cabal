@@ -165,6 +165,7 @@ Test-Suite memory-leak
   build-depends:       Rattus, base
   ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
 
+
 Test-Suite time-leak
   type:                exitcode-stdio-1.0
   main-is:             TimeLeak.hs

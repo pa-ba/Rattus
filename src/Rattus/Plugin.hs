@@ -36,7 +36,7 @@ import System.Exit
 --
 -- > {-# ANN myFunction NotRattus #-}
 
-data Rattus = Rattus | NotRattus deriving (Typeable, Data, Show, Eq)
+data Rattus = Rattus | NotRattus | AllowLazyData deriving (Typeable, Data, Show, Eq)
 
 -- | Use this to enable Rattus' plugin, either by supplying the option
 -- @-fplugin=Rattus.Plugin@ directly to GHC. or by including the
@@ -68,14 +68,16 @@ strictify guts b@(Rec bs) = do
   tr <- liftM or (mapM (shouldTransform guts . fst) bs)
   if tr then do
     let vs = map fst bs
-    let es = map snd bs
-    es' <- mapM strictifyExpr es
+    es' <- mapM (\ (v,e) -> do
+                    lazy <- allowLazyData guts v
+                    strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy))e) bs
     return (Rec (zip vs es'))
   else return b
 strictify guts b@(NonRec v e) = do
     tr <- shouldTransform guts v
     if tr then do
-      e' <- strictifyExpr e
+      lazy <- allowLazyData guts v
+      e' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy)) e
       return (NonRec v e')
     else return b
 
@@ -110,6 +112,12 @@ getModuleAnnotations guts = anns'
         anns' = mapMaybe (fromSerialized deserializeWithData . ann_value) anns
   
 
+
+
+allowLazyData :: ModGuts -> CoreBndr -> CoreM Bool
+allowLazyData guts bndr = do
+  l <- annotationsOn guts bndr :: CoreM [Rattus]
+  return (AllowLazyData `elem` l)
 
 
 shouldTransform :: ModGuts -> CoreBndr -> CoreM Bool
