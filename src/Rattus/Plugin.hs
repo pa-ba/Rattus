@@ -35,6 +35,15 @@ import System.Exit
 -- definitions) as follows:
 --
 -- > {-# ANN myFunction NotRattus #-}
+--
+-- By default all Rattus functions are checked for use of lazy data
+-- types, since these may cause memory leaks. If any lazy data types
+-- are used, a warning is issued. These warnings can be disabled by
+-- annotating the module or the function with 'AllowLazyData'
+--
+-- > {-# ANN myFunction AllowLazyData #-}
+-- >
+-- > {-# ANN module AllowLazyData #-}
 
 data Rattus = Rattus | NotRattus | AllowLazyData deriving (Typeable, Data, Show, Eq)
 
