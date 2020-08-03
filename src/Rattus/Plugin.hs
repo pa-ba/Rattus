@@ -15,12 +15,12 @@ import Prelude hiding ((<>))
 import GhcPlugins
 import TcRnTypes
 
-import qualified Data.Set as Set
+
 import Control.Monad
 import Data.Maybe
 import Data.Data hiding (tyConName)
 
-import System.Exit
+
 
 
 -- | Use this to enable Rattus' plugin, either by supplying the option
@@ -66,29 +66,6 @@ strictify guts b@(NonRec v e) = do
       e' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy)) e
       return (NonRec v e')
     else return b
-
-
--- scopecheckProgram :: ModGuts -> CoreM ModGuts
--- scopecheckProgram guts = do
---   res <- mapM (scopecheck guts) (mg_binds guts)
---   if and res then return guts else liftIO exitFailure
-
-
--- scopecheck :: ModGuts -> CoreBind -> CoreM Bool
--- scopecheck guts (Rec bs) = do
---   tr <- liftM or (mapM (shouldTransform guts . fst) bs)
---   if tr then do
---     let vs = map fst bs
---     let vs' = Set.fromList vs
---     valid <- mapM (\ (v,e) -> checkExpr (emptyCtx (Just vs') v) e) bs
---     return (and valid)
---   else return True
--- scopecheck guts (NonRec v e) = do
---     tr <- shouldTransform guts v
---     if tr then do
---       valid <- checkExpr (emptyCtx Nothing v) e
---       return valid
---     else return True
 
 getModuleAnnotations :: Data a => ModGuts -> [a]
 getModuleAnnotations guts = anns'
