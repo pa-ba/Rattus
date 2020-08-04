@@ -21,6 +21,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Char
 import Data.Maybe
+import MonadUtils
 
 isType Type {} = True
 isType (App e _) = isType e
@@ -46,18 +47,18 @@ isType _ = False
 --     Warning -> warnMsg doc'
 
 
-printMessage :: Severity -> SrcSpan -> SDoc -> CoreM ()
+
+
+
+printMessage :: (HasDynFlags m, MonadIO m) =>
+                Severity -> SrcSpan -> MsgDoc -> m ()
 printMessage sev loc doc = do
   dflags <- getDynFlags
-  unqual <- getPrintUnqualified
   let sty = case sev of
-                     SevError   -> err_sty
-                     SevWarning -> err_sty
-                     SevDump    -> dump_sty
-                     _          -> user_sty
-      err_sty  = mkErrStyle dflags unqual
-      user_sty = mkUserStyle dflags unqual AllTheWay
-      dump_sty = mkDumpStyle dflags unqual
+                     SevError   -> defaultErrStyle dflags
+                     SevWarning -> defaultErrStyle dflags
+                     SevDump    -> defaultDumpStyle dflags
+                     _          -> defaultUserStyle dflags
   liftIO $ putLogMsg dflags NoReason sev loc sty doc
 
 
