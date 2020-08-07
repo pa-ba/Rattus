@@ -1,61 +1,70 @@
+{-# LANGUAGE Arrows #-}
+{-# LANGUAGE RebindableSyntax #-}
 
 module Main (module Main) where
 
 import RaTT
 import RaTT.Stream
 import Prelude hiding ((<*>), map, const)
+import Rattus.Yampa
 
 -- Uncomment the annotation below to check that the definitions in
 -- this module don't type check
 
--- {-# ANN module RaTT #-}
+{-# ANN module RaTT #-}
 
-bar1 :: Box (a -> b) -> Str a -> Str b
-bar1 f (x ::: xs) = unbox f x ::: (delay (bar2 f) <*> xs)
-
-bar2 :: Box (a -> b) -> Str a -> Str b
-bar2 f  (x ::: xs) = unbox f x ::: (delay (bar1 f) <*> xs)
+sfLeak :: O Int -> SF () (O Int)
+sfLeak  x = proc _ -> do
+  returnA -< x
 
 
-dblDelay :: Box (O (O Int))
-dblDelay = box (delay (delay 1))
 
-lambdaUnderDelay :: Box (O (O Int -> Int -> Int))
-lambdaUnderDelay = box (delay (\x _ -> adv x))
+-- bar1 :: Box (a -> b) -> Str a -> Str b
+-- bar1 f (x ::: xs) = unbox f x ::: (delay (bar2 f) <*> xs)
 
-leaky :: (() -> Bool) -> Str Bool
-leaky p = p () ::: delay (leaky (\ _ -> hd (leaky (\ _ -> True))))
-
-grec :: Int
-grec = grec
-
-zeros :: Box (Str Int)
-zeros = box (0 ::: delay (unbox zeros))
-
-constUnstable :: a -> Str a
-constUnstable a = run
-  where run = a ::: delay run
-
-mapUnboxed :: (a -> b) -> Str a -> Str b
-mapUnboxed f = run
-  where run (x ::: xs) = f x ::: delay (run (adv xs))
+-- bar2 :: Box (a -> b) -> Str a -> Str b
+-- bar2 f  (x ::: xs) = unbox f x ::: (delay (bar1 f) <*> xs)
 
 
-data Input = Input {jump :: !Bool, move :: Move}
-data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove
+-- dblDelay :: Box (O (O Int))
+-- dblDelay = box (delay (delay 1))
 
--- Input is not a stable type (it is not strict). Therefore this
--- should not type check.
-constS :: Input -> Str Input
-constS a = a ::: delay (constS a)
+-- lambdaUnderDelay :: Box (O (O Int -> Int -> Int))
+-- lambdaUnderDelay = box (delay (\x _ -> adv x))
+
+-- leaky :: (() -> Bool) -> Str Bool
+-- leaky p = p () ::: delay (leaky (\ _ -> hd (leaky (\ _ -> True))))
+
+-- grec :: Int
+-- grec = grec
+
+-- zeros :: Box (Str Int)
+-- zeros = box (0 ::: delay (unbox zeros))
+
+-- constUnstable :: a -> Str a
+-- constUnstable a = run
+--   where run = a ::: delay run
+
+-- mapUnboxed :: (a -> b) -> Str a -> Str b
+-- mapUnboxed f = run
+--   where run (x ::: xs) = f x ::: delay (run (adv xs))
 
 
--- Since Input is not strict, we cannot instantiate the 'const'
--- function.
--- Uncomment the definition below to check this.
+-- data Input = Input {jump :: !Bool, move :: Move}
+-- data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove
 
--- constS' :: Input -> Str Input
--- constS' = const
+-- -- Input is not a stable type (it is not strict). Therefore this
+-- -- should not type check.
+-- constS :: Input -> Str Input
+-- constS a = a ::: delay (constS a)
+
+
+-- -- Since Input is not strict, we cannot instantiate the 'const'
+-- -- function.
+-- -- Uncomment the definition below to check this.
+
+-- -- constS' :: Input -> Str Input
+-- -- constS' = const
 
 
 {-# ANN main NotRaTT #-}

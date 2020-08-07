@@ -29,27 +29,6 @@ isType (Cast e _) = isType e
 isType (Tick _ e) = isType e
 isType _ = False
 
-
-
--- printMessage :: Severity -> SDoc -> CoreM ()
--- printMessage sev doc =
---   case sev of
---     Error -> errorMsg doc
---     Warning -> warnMsg doc
-
-
--- printMessageV :: Severity -> Var -> SDoc -> CoreM ()
--- printMessageV sev var doc =
---   let loc = nameSrcLoc (varName var)
---       doc' = ppr loc <> text ": " <> doc
---   in case sev of
---     Error -> errorMsg doc'
---     Warning -> warnMsg doc'
-
-
-
-
-
 printMessage :: (HasDynFlags m, MonadIO m) =>
                 Severity -> SrcSpan -> MsgDoc -> m ()
 printMessage sev loc doc = do

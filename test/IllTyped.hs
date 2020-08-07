@@ -1,7 +1,11 @@
+{-# LANGUAGE Arrows #-}
+{-# LANGUAGE RebindableSyntax #-}
+
 module Main (module Main) where
 
 import Rattus
 import Rattus.Stream
+import Rattus.Yampa
 import Prelude hiding ((<*>), map, const)
 
 -- Uncomment the annotation below to check that the definitions in
@@ -10,10 +14,10 @@ import Prelude hiding ((<*>), map, const)
 -- {-# ANN module Rattus #-}
 
 
--- This function will produce a confusing scoping error message since
--- GHC will inline the let-binding before Rattus' scope checker gets
--- to see it.
-
+sfLeak :: O Int -> SF () (O Int)
+sfLeak  x = proc _ -> do
+  returnA -< x
+  
 advDelay :: O (O a) -> O a
 advDelay y = delay (let x = adv y in adv x)
 

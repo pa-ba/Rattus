@@ -73,7 +73,7 @@ emptyCtxt' mvar cvar =
 type LCtxt = Set Var
 
 type RecDef = (Set Var, SrcSpan) -- the recursively defined variables + the position where the recursive definition starts
-data HiddenReason = NestedRec SrcSpan | FunDef | BoxApp | AdvApp deriving Show
+data HiddenReason = NestedRec SrcSpan | FunDef | BoxApp | AdvApp | ArrowNotation deriving Show
 type Hidden = Map Var HiddenReason
 data Prim = Delay | Adv | Box | Unbox | Arr deriving Show
 
@@ -199,9 +199,8 @@ instance ScopeBind (SCC (LHsBindLR GhcTc GhcTc, Set Var)) where
 instance ScopeBind (HsValBindsLR GhcTc GhcTc) where
   checkBind (ValBinds _ bs _) = checkBind (dependency bs)
   
-  checkBind (XValBindsLR (NValBinds binds _)) = -- TODO improve this
-    checkBind binds
-    --checkBind (dependency (unionManyBags (map snd binds)))
+  checkBind (XValBindsLR (NValBinds binds _)) = checkBind binds
+
 
 instance ScopeBind (HsBindLR GhcTc GhcTc) where
   checkBind b = (, getBV b) <$> check b
@@ -346,8 +345,8 @@ instance Scope (HsExpr GhcTc) where
   check HsRnBracketOut{} = notSupported "MetaHaskell"
   check HsTcBracketOut{} = notSupported "MetaHaskell"
   check HsSpliceE{} = notSupported "Template Haskell"
-  check (HsProc _ p e) =  mod `modifyCtxt` check e
-    where mod c = addVars (getBV p) (stabilizeLater c)
+  check (HsProc _ p e) = mod `modifyCtxt` check e
+    where mod c = addVars (getBV p) (stabilize ArrowNotation c)
   check (HsStatic _ e) = check e
   check (HsDo _ _ e) = fst <$> checkBind e
   check (HsCoreAnn _ _ _ e) = check e
@@ -477,6 +476,7 @@ getScope v =
         Just (NestedRec rv) -> Hidden ("Recursive call to" <> ppr v <>
                             " is not allowed as it occurs in a local recursive definiton (at " <> ppr rv <> ")")
         Just BoxApp -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs under a box")
+        Just ArrowNotation -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs inside an arrow notation")
         Just FunDef -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs in a function that is defined under delay")
         Just AdvApp -> Hidden ("This should not happen: recursive call to " <> ppr v <> " is out of scope due to adv")
         Nothing -> 
@@ -490,6 +490,10 @@ getScope v =
               if (isStable (stableTypes ?ctxt) (varType v)) then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
                        "It occurs under " <> keyword "box" $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
+            Just ArrowNotation ->
+              if (isStable (stableTypes ?ctxt) (varType v)) then Visible
+              else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
+                       "It occurs under inside an arrow notation and is of type " <> ppr (varType v) <> ", which is not stable.")
             Just AdvApp -> Hidden ("Variable " <> ppr v <> " is no longer in scope: It occurs under adv.")
             Just FunDef -> if (isStable (stableTypes ?ctxt) (varType v)) then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope: It occurs in a function that is defined under a delay, is a of a non-stable type " <> ppr (varType v) <> ", and is bound outside delay")
