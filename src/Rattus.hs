@@ -16,7 +16,10 @@ module Rattus (
   (|*|),
   (|**),
   (<*>),
-  (<**))
+  (<**),
+  -- * box for stable types
+  box'
+  )
   where
 
 import Rattus.Plugin
@@ -49,3 +52,9 @@ f |*| x = box (unbox f (unbox x))
 {-# INLINE (|**) #-}
 (|**) :: Stable a => Box (a -> b) -> a -> Box b
 f |** x = box (unbox f x)
+
+
+-- | Variant of 'box' for stable types that can be safely used nested
+-- in recursive definitions or in another box.
+box' ::  Stable a => a -> Box a
+box' x = box x

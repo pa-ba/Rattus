@@ -68,8 +68,7 @@ description:
             non-standard typing rules. To write Rattus programs, one
             must enable this plugin via the GHC option
             @-fplugin=Rattus.Plugin@, e.g. by including the following
-            line in the source file (for better error messages we also
-            suggest using the option @-g2@):
+            line in the source file:
             
             .
             
@@ -157,7 +156,7 @@ library
   build-depends:       base >=4.12 && <5, containers, simple-affine-space, ghc >= 8.6 && < 8.11
   hs-source-dirs:      src
   default-language:    Haskell2010
-  ghc-options: -W -g2
+  ghc-options:         -W
   
 Test-Suite memory-leak
   type:                exitcode-stdio-1.0
@@ -165,7 +164,7 @@ Test-Suite memory-leak
   hs-source-dirs:      test
   default-language:    Haskell2010
   build-depends:       Rattus, base
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts
 
 
 Test-Suite time-leak
@@ -174,14 +173,14 @@ Test-Suite time-leak
   hs-source-dirs:      test
   default-language:    Haskell2010
   build-depends:       Rattus, base
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts
   
 Test-Suite ill-typed
   type:                exitcode-stdio-1.0
   main-is:             test/IllTyped.hs
   default-language:    Haskell2010
   build-depends:       Rattus, base
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts
 
 
 Test-Suite well-typed
@@ -190,7 +189,7 @@ Test-Suite well-typed
   hs-source-dirs:      test
   default-language:    Haskell2010
   build-depends:       Rattus, base, containers
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts
 
 
 Test-Suite rewrite
@@ -199,5 +198,5 @@ Test-Suite rewrite
   hs-source-dirs:      test
   default-language:    Haskell2010
   build-depends:       Rattus, base, containers
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2 -ddump-rule-firings
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -ddump-rule-firings
 

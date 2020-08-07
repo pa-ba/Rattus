@@ -266,7 +266,7 @@ instance Scope (HsExpr GhcTc) where
              Hidden reason -> printMessageCheck SevError reason
              Visible -> return True
              ImplUnboxed -> printMessageCheck SevWarning 
-                (ppr v <> text " is an external temporal function used under delay, which may cause time leaks: " <> text (show ?ctxt))
+                (ppr v <> text " is an external temporal function used under delay, which may cause time leaks")
   check (HsApp _ e1 e2) =
     case isPrimExpr e1 of
     Just (p,_) -> case p of
@@ -275,16 +275,14 @@ instance Scope (HsExpr GhcTc) where
         -- don't bother with a warning if the scopecheck fails
         when (ch && stabilized ?ctxt) --TODO  && not (isStable (stableTypes ?ctxt) (exprType e2)))
           (printMessage' SevWarning
-           (text "When box is used inside another box or a recursive definition,"
-            <> " it can cause time leaks unless applied to an expression of stable type"))
+           (text "When box is used inside another box or a recursive definition, it can cause time leaks"))
         return ch
       Arr -> do
         ch <- stabilize BoxApp `modifyCtxt` check e2
         -- don't bother with a warning if the scopecheck fails
         when (ch && stabilized ?ctxt) -- && not (isStable (stableTypes c) (exprType e2)))
           (printMessage' SevWarning
-            (text "When arr is used inside box or a recursive definition,"
-             <> " it can cause time leaks unless applied to an expression of stable type"))
+            (text "When arr is used inside box or a recursive definition, it can cause time leaks"))
         return ch
 
       Unbox -> check e2

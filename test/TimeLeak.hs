@@ -10,7 +10,6 @@ import Prelude hiding ((<*>), map)
 
 {-# ANN module Rattus #-}
 
-
 nats' :: Str Int
 nats' = unfold (box ((+) 1)) 0
 

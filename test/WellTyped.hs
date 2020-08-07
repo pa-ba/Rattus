@@ -31,7 +31,7 @@ scanBox f acc (a ::: as) =  unbox acc' ::: delay (scanBox f (unbox acc') (adv as
 
 
 sumBox :: Str Int -> Str Int
-sumBox = scanBox (box (\x y -> box (x + y))) 0
+sumBox = scanBox (box (\x y -> box' (x + y))) 0
 
 map1 :: Box (a -> b) -> Str a -> Str b
 map1 f (x ::: xs) = unbox f x ::: delay (map1 f (adv xs))
