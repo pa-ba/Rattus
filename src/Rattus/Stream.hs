@@ -1,6 +1,6 @@
 {-# OPTIONS -fplugin=Rattus.Plugin #-}
 {-# LANGUAGE TypeOperators #-}
-
+{-# LANGUAGE CPP #-}
 -- | Programming with streams.
 
 module Rattus.Stream
@@ -148,6 +148,13 @@ integral acc (t ::: ts) (a ::: as) = acc' ::: delay (integral acc' (adv ts) (adv
   "map/scan" forall f p acc as.
     map p (scan f acc as) = scanMap f p acc as ;
 
+  "zip/map" forall xs ys f.
+    map f (zip xs ys) = let f' = unbox f in zipWith (box (\ x y -> f' (x :* y))) xs ys
+#-}
+
+
+#if __GLASGOW_HASKELL__ >= 808
+{-# RULES
   "scan/scan" forall f g b c as.
     scan g c (scan f b as) =
       let f' = unbox f; g' = unbox g in
@@ -158,6 +165,5 @@ integral acc (t ::: ts) (a ::: as) = acc' ::: delay (integral acc' (adv ts) (adv
       let f' = unbox f; g' = unbox g; p' = unbox p in
       scanMap (box (\ (b:*c) a -> let b' = f' (p' b) a in (b':* g' c b'))) (box snd') (b:*c) as ;
 
-  "zip/map" forall xs ys f.
-    map f (zip xs ys) = let f' = unbox f in zipWith (box (\ x y -> f' (x :* y))) xs ys
 #-}
+#endif

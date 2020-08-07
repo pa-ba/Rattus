@@ -1,14 +1,27 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE CPP #-}
 module Rattus.Plugin.Dependency where
 
 
 import GhcPlugins
 import Bag
+
+
+#if __GLASGOW_HASKELL__ >= 810
+import GHC.Hs.Extension
+import GHC.Hs.Expr
+import GHC.Hs.Pat
+import GHC.Hs.Binds
+import GHC.Hs.Types
+#else 
 import HsExtension
 import HsExpr
 import HsPat
 import HsBinds
+import HsTypes
+#endif
+
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Graph
@@ -16,7 +29,6 @@ import Data.Maybe
 import Data.Either
 import Prelude hiding ((<>))
 
-import HsTypes
 
 
 
@@ -68,10 +80,11 @@ instance HasBV a => HasBV (GenLocated b a) where
 instance HasBV a => HasBV [a] where
   getBV ps = foldl (\s p -> getBV p `Set.union` s) Set.empty ps
 
-instance HasBV (HsConDetails (Pat GhcTc) (HsRecFields p (Pat GhcTc))) where
-  getBV (PrefixCon ps) = getBV ps
-  getBV (InfixCon p p') = getBV p `Set.union` getBV p'
-  getBV (RecCon (HsRecFields {rec_flds = fs})) = foldl run Set.empty fs
+
+
+getConBV (PrefixCon ps) = getBV ps
+getConBV (InfixCon p p') = getBV p `Set.union` getBV p'
+getConBV (RecCon (HsRecFields {rec_flds = fs})) = foldl run Set.empty fs
       where run s (L _ f) = getBV (hsRecFieldArg f) `Set.union` s
 
 instance HasBV (Pat GhcTc) where
@@ -83,8 +96,8 @@ instance HasBV (Pat GhcTc) where
   getBV (ListPat _ ps) = getBV ps
   getBV (TuplePat _ ps _) = getBV ps
   getBV (SumPat _ p _ _) = getBV p
-  getBV (ConPatIn (L _ v) con) = Set.insert v (getBV con)
-  getBV (ConPatOut {pat_args = con}) = getBV con
+  getBV (ConPatIn (L _ v) con) = Set.insert v (getConBV con)
+  getBV (ConPatOut {pat_args = con}) = getConBV con
   getBV (ViewPat _ _ p) = getBV p
   getBV (SplicePat _ sp) =
     case sp of
@@ -94,16 +107,25 @@ instance HasBV (Pat GhcTc) where
       HsSpliced _ _ (HsSplicedPat p) -> getBV p
       _ -> Set.empty
   getBV (NPlusKPat _ (L _ v) _ _ _ _) = Set.singleton v
-  getBV (SigPat _ p _) = getBV p
   getBV (CoPat _ _ p _) = getBV p
   getBV (NPat {}) = Set.empty
   getBV (XPat p) = getBV p
   getBV (WildPat {}) = Set.empty
   getBV (LitPat {}) = Set.empty
 
+#if __GLASGOW_HASKELL__ >= 808
+  getBV (SigPat _ p _) =
+#else
+  getBV (SigPat _ p) =
+#endif
+    getBV p
 
-
-
+#if __GLASGOW_HASKELL__ >= 810
+instance HasBV NoExtCon where
+#else
+instance HasBV NoExt where
+#endif
+  getBV _ = Set.empty
 
 
 -- | Syntax that may contain free variables
@@ -172,7 +194,12 @@ instance HasFV (HsIPBinds GhcTc) where
   getFV _ = Set.empty
 
 instance HasFV (ApplicativeArg GhcTc) where
-  getFV (ApplicativeArgOne _ _ e _) = getFV e
+#if __GLASGOW_HASKELL__ >= 810
+  getFV (ApplicativeArgOne _ _ e _ _)
+#else
+  getFV (ApplicativeArgOne _ _ e _)
+#endif
+    = getFV e
   getFV (ApplicativeArgMany _ es e _) = getFV es `Set.union` getFV e
   getFV XApplicativeArg{} = Set.empty
 
@@ -238,7 +265,14 @@ instance HasFV (HsExpr GhcTc) where
   getFV (HsLam _ mg) = getFV mg
   getFV (HsLamCase _ mg) = getFV mg
   getFV (HsApp _ e1 e2) = getFV e1 `Set.union` getFV e2
-  getFV (HsAppType _ e _) = getFV e
+
+#if __GLASGOW_HASKELL__ >= 808
+  getFV (HsAppType _ e _)
+#else
+  getFV (HsAppType _ e)
+#endif
+    = getFV e
+      
   getFV (OpApp _ e1 e2 e3) = getFV e1 `Set.union` getFV e2 `Set.union` getFV e3
   getFV (NegApp _ e _) = getFV e
   getFV (HsPar _ e) = getFV e
@@ -254,7 +288,14 @@ instance HasFV (HsExpr GhcTc) where
   getFV (ExplicitList _ _ es) = getFV es
   getFV (RecordCon {rcon_flds = fs}) = getFV fs
   getFV (RecordUpd {rupd_expr = e, rupd_flds = fs}) = getFV e `Set.union` getFV fs
-  getFV (ExprWithTySig _ e _) = getFV e
+
+#if __GLASGOW_HASKELL__ >= 808
+  getFV (ExprWithTySig _ e _)
+#else
+  getFV (ExprWithTySig _ e)
+#endif
+    = getFV e
+
   getFV (ArithSeq _ _ e) = getFV e
   getFV (HsSCC _ _ _ e) = getFV e
   getFV (HsCoreAnn _ _ _ e) = getFV e
@@ -264,15 +305,19 @@ instance HasFV (HsExpr GhcTc) where
   getFV HsSpliceE{} = Set.empty
   getFV (HsProc _ _ e) = getFV e
   getFV (HsStatic _ e) = getFV e
+
+#if __GLASGOW_HASKELL__ < 810  
   getFV (HsArrApp _ e1 e2 _ _) = getFV e1 `Set.union` getFV e2
   getFV (HsArrForm _ e _ cmd) = getFV e `Set.union` getFV cmd
-  getFV (HsTick _ _ e) = getFV e
-  getFV (HsBinTick _ _ _ e) = getFV e
-  getFV (HsTickPragma _ _ _ _ e) = getFV e
   getFV EWildPat {} = Set.empty
   getFV (EAsPat _ e1 e2) = getFV e1 `Set.union` getFV e2
   getFV (EViewPat _ e1 e2) = getFV e1 `Set.union` getFV e2
   getFV (ELazyPat _ e) = getFV e
+#endif
+  
+  getFV (HsTick _ _ e) = getFV e
+  getFV (HsBinTick _ _ _ e) = getFV e
+  getFV (HsTickPragma _ _ _ _ e) = getFV e
   getFV (HsWrap _ _ e) = getFV e
   getFV XExpr{} = Set.empty
 

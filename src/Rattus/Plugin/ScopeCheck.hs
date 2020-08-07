@@ -6,6 +6,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE CPP #-}
+
 module Rattus.Plugin.ScopeCheck (checkAll) where
 
 import Rattus.Plugin.Utils
@@ -17,10 +19,19 @@ import Prelude hiding ((<>))
 import GhcPlugins
 import TcRnTypes
 import Bag
+
+#if __GLASGOW_HASKELL__ >= 810
+import GHC.Hs.Extension
+import GHC.Hs.Expr
+import GHC.Hs.Pat
+import GHC.Hs.Binds
+#else 
 import HsExtension
 import HsExpr
 import HsPat
 import HsBinds
+#endif
+
 import Data.Graph
 import qualified Data.Set as Set
 import qualified Data.Map as Map
@@ -294,7 +305,14 @@ instance Scope (HsExpr GhcTc) where
   check HsOverLabel{} = return True
   check HsIPVar{} = notSupported "implicit parameters"
   check HsOverLit{} = return True
-  check (HsAppType _ e _) = check e
+  
+#if __GLASGOW_HASKELL__ >= 808
+  check (HsAppType _ e _)
+#else
+  check (HsAppType _ e)
+#endif
+    = check e
+  
   check (HsTick _ _ e) = check e
   check (HsBinTick _ _ _ e) = check e  
   check (HsSCC _ _ _ e) = check e
@@ -319,24 +337,34 @@ instance Scope (HsExpr GhcTc) where
   check (ExplicitList _ _ e) = check e
   check RecordCon { rcon_flds = f} = check f
   check RecordUpd { rupd_expr = e, rupd_flds = fs} = (&&) <$> check e <*> check fs
-  check (ExprWithTySig _ e _ ) = check e
+#if __GLASGOW_HASKELL__ >= 808
+  check (ExprWithTySig _ e _)
+#else
+  check (ExprWithTySig _ e)
+#endif
+    = check e
   check (ArithSeq _ _ e) = check e
   check HsBracket{} = notSupported "MetaHaskell"
   check HsRnBracketOut{} = notSupported "MetaHaskell"
   check HsTcBracketOut{} = notSupported "MetaHaskell"
   check HsSpliceE{} = notSupported "Template Haskell"
   check HsProc{} = notSupported "Arrow notation"
+  check (HsStatic _ e) = check e
+  check (HsDo _ _ e) = fst <$> checkBind e
+  check (HsCoreAnn _ _ _ e) = check e
+  check (HsTickPragma _ _ _ _ e) = check e
+  check XExpr {} = return True
+#if __GLASGOW_HASKELL__ < 810
   check HsArrApp{} = impossible
   check HsArrForm{} = impossible
   check EWildPat{} = impossible
   check EAsPat{} = impossible
   check EViewPat{} = impossible
   check ELazyPat{} = impossible
-  check (HsStatic _ e) = check e
-  check (HsDo _ _ e) = fst <$> checkBind e
-  check (HsCoreAnn _ _ _ e) = check e
-  check (HsTickPragma _ _ _ _ e) = check e
-  check XExpr {} = return True
+
+impossible :: GetCtxt => TcM Bool
+impossible = printMessageCheck SevError "This syntax should never occur after typechecking"
+#endif
 
 stabilizeLater :: Ctxt -> Ctxt
 stabilizeLater c =
@@ -348,9 +376,6 @@ stabilizeLater c =
   else c {earlier = Nothing,
           hidden = hid}
   where hid = maybe (hidden c) (Map.union (hidden c) . Map.fromSet (const FunDef)) (earlier c)
-
-impossible :: GetCtxt => TcM Bool
-impossible = printMessageCheck SevError "This syntax should never occur after typechecking"
 
 
 instance Scope (ArithSeqInfo GhcTc) where
@@ -481,7 +506,13 @@ isPrimExpr :: GetCtxt => LHsExpr GhcTc -> Maybe (Prim,Var)
 isPrimExpr (L _ e) = isPrimExpr' e where
   isPrimExpr' :: GetCtxt => HsExpr GhcTc -> Maybe (Prim,Var)
   isPrimExpr' (HsVar _ (L _ v)) = fmap (,v) (isPrim v)
-  isPrimExpr' (HsAppType _ e _) = isPrimExpr e
+  
+#if __GLASGOW_HASKELL__ >= 808
+  isPrimExpr' (HsAppType _ e _)
+#else
+  isPrimExpr' (HsAppType _ e)
+#endif
+    = isPrimExpr e
   isPrimExpr' (HsTick _ _ e) = isPrimExpr e
   isPrimExpr' (HsBinTick _ _ _ e) = isPrimExpr e  
   isPrimExpr' (HsSCC _ _ _ e) = isPrimExpr e
