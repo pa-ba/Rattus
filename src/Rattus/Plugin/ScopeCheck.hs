@@ -132,16 +132,16 @@ instance Scope a => Scope [a] where
   check ls = fmap and (mapM check ls)
 
 
-instance Scope (Match GhcTc (LHsExpr GhcTc)) where
+instance Scope a => Scope (Match GhcTc a) where
   check Match{m_pats=ps,m_grhss=rhs} = mod `modifyCtxt` check rhs
     where mod c = addVars (getBV ps) (if null ps then c else stabilizeLater c)
   check XMatch{} = return True
 
-instance Scope (MatchGroup GhcTc (LHsExpr GhcTc)) where
+instance Scope a => Scope (MatchGroup GhcTc a) where
   check MG {mg_alts = alts} = check alts
   check XMatchGroup {} = return True
 
-instance ScopeBind (StmtLR GhcTc GhcTc (LHsExpr GhcTc)) where
+instance Scope a => ScopeBind (StmtLR GhcTc GhcTc a) where
   checkBind (LastStmt _ b _ _) =  ( , Set.empty) <$> check b
   checkBind (BindStmt _ p b _ _) = do
     let vs = getBV p
@@ -168,7 +168,7 @@ instance ScopeBind a => ScopeBind (GenLocated SrcSpan a) where
   checkBind (L l x) =  (\c -> c {srcLoc = l}) `modifyCtxt` checkBind x
 
 
-instance Scope (GRHS GhcTc (LHsExpr GhcTc)) where
+instance Scope a => Scope (GRHS GhcTc a) where
   check (GRHS _ gs b) = do
     (r, vs) <- checkBind gs
     r' <- addVars vs `modifyCtxt`  (check b)
@@ -246,7 +246,7 @@ instance ScopeBind (HsLocalBindsLR GhcTc GhcTc) where
   checkBind EmptyLocalBinds{} = return (True,Set.empty)
   checkBind XHsLocalBindsLR{} = return (True,Set.empty)
 
-instance Scope (GRHSs GhcTc (LHsExpr GhcTc)) where
+instance Scope a => Scope (GRHSs GhcTc a) where
   check GRHSs{grhssGRHSs = rhs, grhssLocalBinds = lbinds} = do
     (l,vs) <- checkBind lbinds
     r <- addVars vs `modifyCtxt` (check rhs)
@@ -346,7 +346,8 @@ instance Scope (HsExpr GhcTc) where
   check HsRnBracketOut{} = notSupported "MetaHaskell"
   check HsTcBracketOut{} = notSupported "MetaHaskell"
   check HsSpliceE{} = notSupported "Template Haskell"
-  check HsProc{} = notSupported "Arrow notation"
+  check (HsProc _ p e) =  mod `modifyCtxt` check e
+    where mod c = addVars (getBV p) (stabilizeLater c)
   check (HsStatic _ e) = check e
   check (HsDo _ _ e) = fst <$> checkBind e
   check (HsCoreAnn _ _ _ e) = check e
@@ -363,6 +364,27 @@ instance Scope (HsExpr GhcTc) where
 impossible :: GetCtxt => TcM Bool
 impossible = printMessageCheck SevError "This syntax should never occur after typechecking"
 #endif
+
+
+instance Scope (HsCmdTop GhcTc) where
+  check (HsCmdTop _ e) = check e
+  check XCmdTop{} = return True
+
+instance Scope (HsCmd GhcTc) where
+  check (HsCmdArrApp _ e1 e2 _ _) = (&&) <$> check e1 <*> check e2
+  check (HsCmdDo _ e) = fst <$> checkBind e
+  check (HsCmdArrForm _ e1 _ _ e2) = (&&) <$> check e1 <*> check e2
+  check (HsCmdApp _ e1 e2) = (&&) <$> check e1 <*> check e2
+  check (HsCmdLam _ e) = check e
+  check (HsCmdPar _ e) = check e
+  check (HsCmdCase _ e1 e2) = (&&) <$> check e1 <*> check e2
+  check (HsCmdIf _ _ e1 e2 e3) = (&&) <$> ((&&) <$> check e1 <*> check e2) <*> check e3
+  check (HsCmdLet _ bs e) = do
+    (l,vs) <- checkBind bs
+    r <- addVars vs `modifyCtxt` (check e)
+    return (r && l)
+  check (HsCmdWrap _ _ e) = check e
+  check XCmd{} = return True
 
 stabilizeLater :: Ctxt -> Ctxt
 stabilizeLater c =
