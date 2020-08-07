@@ -97,7 +97,7 @@ instance HasBV (Pat GhcTc) where
   getBV (SigPat _ p _) = getBV p
   getBV (CoPat _ _ p _) = getBV p
   getBV (NPat {}) = Set.empty
-  getBV (XPat {}) = Set.empty
+  getBV (XPat p) = getBV p
   getBV (WildPat {}) = Set.empty
   getBV (LitPat {}) = Set.empty
 

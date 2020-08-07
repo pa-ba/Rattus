@@ -14,8 +14,15 @@ import Prelude hiding ((<*>), map, const)
 -- This function will produce a confusing scoping error message since
 -- GHC will inline the let-binding before Rattus' scope checker gets
 -- to see it.
+
 advDelay :: O (O a) -> O a
 advDelay y = delay (let x = adv y in adv x)
+
+advDelay' :: O a -> a
+advDelay' y = let x = adv y in x
+
+dblAdv :: O (O a) -> O a
+dblAdv y = delay (adv (adv y))
 
 dblDelay :: O (O Int)
 dblDelay = delay (delay 1)
@@ -23,8 +30,8 @@ dblDelay = delay (delay 1)
 lambdaUnderDelay :: O (O Int -> Int -> Int)
 lambdaUnderDelay = delay (\x _ -> adv x)
 
-sneakyLambdaUnderDelay :: O (O Int -> Int -> Int)
-sneakyLambdaUnderDelay = delay (let f x _ =  adv x in f)
+sneakyLambdaUnderDelay :: O (Int -> Int)
+sneakyLambdaUnderDelay = delay (let f _ =  adv (delay 1) in f)
 
 
 lambdaUnderDelay' :: O Int -> O (Int -> O Int)

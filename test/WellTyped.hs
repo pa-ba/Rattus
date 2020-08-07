@@ -9,6 +9,8 @@ import qualified Data.Set as Set
 
 {-# ANN module Rattus #-}
 
+boxedInt :: Box Int
+boxedInt = box 8
 
 lambdaUnderDelay :: O (Int -> Int -> Int)
 lambdaUnderDelay = delay (\x _ -> x)
