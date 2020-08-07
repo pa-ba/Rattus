@@ -471,11 +471,11 @@ getScope v =
       | v `Set.member` vs ->
         case e of
           Just _ -> Visible
-          Nothing -> Hidden ("(Mutually) recursice call to " <> ppr v <> " must occur under delay")
+          Nothing -> Hidden ("(Mutually) recursive call to " <> ppr v <> " must occur under delay")
     _ ->
       case Map.lookup v (hiddenRec ?ctxt) of
         Just (NestedRec rv) -> Hidden ("Recursive call to" <> ppr v <>
-                            " is not allowed as it occurs in a local recursive definiton (namely of " <> ppr rv <> ")")
+                            " is not allowed as it occurs in a local recursive definiton (at " <> ppr rv <> ")")
         Just BoxApp -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs under a box")
         Just FunDef -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs in a function that is defined under delay")
         Just AdvApp -> Hidden ("This should not happen: recursive call to " <> ppr v <> " is out of scope due to adv")
@@ -484,7 +484,7 @@ getScope v =
             Just (NestedRec rv) ->
               if (isStable (stableTypes ?ctxt) (varType v)) then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
-                       "It appears in a local recursive definiton (namely of " <> ppr rv <> ")"
+                       "It appears in a local recursive definiton (at " <> ppr rv <> ")"
                        $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
             Just BoxApp ->
               if (isStable (stableTypes ?ctxt) (varType v)) then Visible
