@@ -1,6 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
 
+
+-- | This module implements a constraint solver plugin for the
+-- 'Stable' type class.
+
 module Rattus.Plugin.StableSolver (tcStable) where
 
 import Rattus.Plugin.Utils
@@ -24,13 +28,14 @@ import qualified Data.Set as Set
 import TcRnTypes
 
 
-
+-- | Constraint solver plugin for the 'Stable' type class.
 tcStable :: [CommandLineOption] -> Maybe TcPlugin
 tcStable _ = Just $ TcPlugin
   { tcPluginInit = return ()
   , tcPluginSolve = \ () -> stableSolver
   , tcPluginStop = \ () -> return ()
   }
+
 
 wrap :: Class -> Type -> EvTerm
 wrap cls ty = EvExpr appDc

@@ -1,7 +1,13 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE CPP #-}
-module Rattus.Plugin.Dependency where
+
+-- | This module is used to perform a dependency analysis of top-level
+-- function definitions, i.e. to find out which defintions are
+-- (mutual) recursive. To this end, this module also provides a
+-- functions to compute, bound variables and variable occurrences.
+
+module Rattus.Plugin.Dependency (dependency, HasBV (..)) where
 
 
 import GhcPlugins
@@ -52,16 +58,18 @@ dependency binds = map AcyclicSCC noDeps ++ catMaybes (map filterJust (stronglyC
         filterJust (CyclicSCC bs) = Just (CyclicSCC (catMaybes bs))
 
 
-printBinds (AcyclicSCC bind) = liftIO (putStr "acyclic bind: ") >> printBind (fst bind) >> liftIO (putStrLn "") 
-printBinds (CyclicSCC binds) = liftIO (putStr "cyclic binds: ") >> mapM_ (printBind . fst) binds >> liftIO (putStrLn "") 
+-- printBinds (AcyclicSCC bind) = liftIO (putStr "acyclic bind: ") >> printBind (fst bind) >> liftIO (putStrLn "") 
+-- printBinds (CyclicSCC binds) = liftIO (putStr "cyclic binds: ") >> mapM_ (printBind . fst) binds >> liftIO (putStrLn "") 
 
 
-printBind (L _ FunBind{fun_id = L _ name}) = 
-  liftIO $ putStr $ (getOccString name ++ " ")
-printBind (L _ (AbsBinds {abs_exports = exp})) = 
-  mapM_ (\ e -> liftIO $ putStr $ ((getOccString $ abe_poly e)  ++ " ")) exp
-printBind (L _ (VarBind {var_id = name})) =   liftIO $ putStr $ (getOccString name ++ " ")
-printBind _ = return ()
+-- printBind (L _ FunBind{fun_id = L _ name}) = 
+--   liftIO $ putStr $ (getOccString name ++ " ")
+-- printBind (L _ (AbsBinds {abs_exports = exp})) = 
+--   mapM_ (\ e -> liftIO $ putStr $ ((getOccString $ abe_poly e)  ++ " ")) exp
+-- printBind (L _ (VarBind {var_id = name})) =   liftIO $ putStr $ (getOccString name ++ " ")
+-- printBind _ = return ()
+
+-- | Computes the variables that are bound by a given piece of syntax.
 
 class HasBV a where
   getBV :: a -> Set Var
@@ -128,9 +136,12 @@ instance HasBV NoExt where
   getBV _ = Set.empty
 
 
--- | Syntax that may contain free variables
+-- | Syntax that may contain variables.
 class HasFV a where
-  -- | compute the set of free variables
+  -- | Compute the set of variables occurring in the given piece of
+  -- syntax.  The name falsely suggests that returns free variables,
+  -- but in fact it returns all variable occurrences, no matter
+  -- whether they are free or bound.
   getFV :: a -> Set Var 
 
 instance HasFV a => HasFV (GenLocated b a) where

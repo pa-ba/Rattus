@@ -8,6 +8,11 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE CPP #-}
 
+
+
+-- | This module implements the source plugin that checks the variable
+-- scope of of Rattus programs.
+
 module Rattus.Plugin.ScopeCheck (checkAll) where
 
 import Rattus.Plugin.Utils
@@ -15,7 +20,6 @@ import Rattus.Plugin.Dependency
 import Rattus.Plugin.Annotation
 
 import Prelude hiding ((<>))
--- import Outputable
 import GhcPlugins
 import TcRnTypes
 import Bag
@@ -42,71 +46,121 @@ import Data.Maybe
 
 import Control.Monad
 
+-- | The current context for scope checking
 data Ctxt = Ctxt
-  { current :: LCtxt,
-    hidden :: Hidden,
-    hiddenRec :: Hidden,
+  {
+    -- | Variables that are in scope now (i.e. occurring in the typing
+    -- context but not to the left of a tick)
+    current :: LCtxt,
+    -- | Variables that are in the typing context, but to the left of a
+    -- tick
     earlier :: Maybe LCtxt,
+    -- | Variables that have fallen out of scope. The map contains the
+    -- reason why they have fallen out of scope.
+    hidden :: Hidden,
+    -- | Same as 'hidden' but for recursive variables.
+    hiddenRec :: Hidden,
+    -- | The current location information.
     srcLoc :: SrcSpan,
+    -- | If we are in the body of a recursively defined function, this
+    -- field contains the variables that are defined recursively
+    -- (could be more than one due to mutual recursion or because of a
+    -- recursive pattern definition) and the location of the recursive
+    -- definition.
     recDef :: Maybe RecDef,
+    -- | Type variables with a 'Stable' constraint attached to them.
     stableTypes :: Set Var,
+    -- | A mapping from variables to the primitives that they are
+    -- defined equal to. For example, a program could contain @let
+    -- mydel = delay in mydel 1@, in which case @mydel@ is mapped to
+    -- 'Delay'.
     primAlias :: Map Var Prim,
+    -- | This flag indicates whether the context was 'stabilized'
+    -- (stripped of all non-stable stuff). It is set when typechecking
+    -- 'box', 'arr' and guarded recursion.
     stabilized :: Bool}
   deriving Show
-          
+
+
+-- | The starting context for checking a top-level definition. For
+-- non-recursive definitions, the argument is @Nothing@. Otherwise, it
+-- contains the recursively defined variables along with the location
+-- of the recursive definition.
 emptyCtxt :: Maybe (Set Var,SrcSpan) -> Ctxt
-emptyCtxt mvar = emptyCtxt' mvar Set.empty
-
-
-emptyCtxt' :: Maybe (Set Var,SrcSpan) -> Set Var -> Ctxt
-emptyCtxt' mvar cvar =
+emptyCtxt mvar =
   Ctxt { current =  Set.empty,
-        earlier = Nothing,
-        hidden = Map.empty,
-        hiddenRec = Map.empty,
-        srcLoc = UnhelpfulSpan "<no location info>",
-        recDef = mvar,
-        primAlias = Map.empty,
-        stableTypes = cvar,
-        stabilized = isJust mvar}
+         earlier = Nothing,
+         hidden = Map.empty,
+         hiddenRec = Map.empty,
+         srcLoc = UnhelpfulSpan "<no location info>",
+         recDef = mvar,
+         primAlias = Map.empty,
+         stableTypes = Set.empty,
+         stabilized = isJust mvar}
 
+-- | A local context, consisting of a set of variables.
 type LCtxt = Set Var
 
-type RecDef = (Set Var, SrcSpan) -- the recursively defined variables + the position where the recursive definition starts
+-- | The recursively defined variables + the position where the
+-- recursive definition starts
+type RecDef = (Set Var, SrcSpan)
+
+-- | Indicates, why a variable has fallen out of scope.
 data HiddenReason = NestedRec SrcSpan | FunDef | BoxApp | AdvApp | ArrowNotation deriving Show
+
+-- | Hidden context, containing variables that have fallen out of
+-- context along with the reason why they have.
 type Hidden = Map Var HiddenReason
+
+-- | The 4 primitive Rattus operations plus 'arr'.
 data Prim = Delay | Adv | Box | Unbox | Arr deriving Show
 
-  
+-- | This constraint is used to pass along the context implicitly via
+-- an implicit parameter.
 type GetCtxt = ?ctxt :: Ctxt
 
+
+-- | This type class is implemented for each AST type @a@ for which we
+-- can check whether it adheres to the scoping rules of Rattus.
 class Scope a where
+  -- | Check whether the argument is a scope correct piece of syntax
+  -- in the given context.
   check :: GetCtxt => a -> TcM Bool
 
--- Check scope for things that also can bind variables. To this end
--- the 'checkBind' function returns the updated context with the bound
--- variables added.
+-- | This is a variant of 'Scope' for syntax that can also bind
+-- variables.
 class ScopeBind a where
+  -- | 'checkBind' checks whether its argument is scope-correct and in
+-- addition returns the the set of variables bound by it.
   checkBind :: GetCtxt => a -> TcM (Bool,Set Var)
 
 
+-- | set the current context.
 setCtxt :: Ctxt -> (GetCtxt => a) -> a 
 setCtxt c a = let ?ctxt = c in a
 
+
+-- | modify the current context.
 modifyCtxt :: (Ctxt -> Ctxt) -> (GetCtxt => a) -> (GetCtxt => a)
 modifyCtxt f a =
   let newc = f ?ctxt in
   let ?ctxt = newc in a
 
 
+-- | Check all definitions in the given module. If Scope errors are
+-- found, the current execution is halted with 'exitFailure'.
 checkAll :: TcGblEnv -> TcM ()
 checkAll env = do
   let bindDep = filter (filterBinds (tcg_mod env) (tcg_ann_env env)) (dependency (tcg_binds env))
-  -- mapM_ printBinds bindDep
   res <- mapM checkSCC bindDep
   if and res then return () else liftIO exitFailure
 
-
+-- | This function checks whether a given top-level definition (either
+-- a single non-recursive definition or a group of mutual recursive
+-- definitions) is marked as Rattus code (via an annotation). In a
+-- group of mutual recursive definitions, the whole group is
+-- considered Rattus code if at least one of its constituents is
+-- marked as such.
 filterBinds :: Module -> AnnEnv -> SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> Bool
 filterBinds mod anEnv scc =
   case scc of
@@ -206,7 +260,7 @@ instance ScopeBind (HsBindLR GhcTc GhcTc) where
   checkBind b = (, getBV b) <$> check b
 
 
-
+-- | Compute the set of variables defined by the given Haskell binder.
 getAllBV :: GenLocated l (HsBindLR GhcTc GhcTc) -> Set Var
 getAllBV (L _ b) = getAllBV' b where
   getAllBV' (FunBind{fun_id = L _ v}) = Set.singleton v
@@ -385,15 +439,19 @@ instance Scope (HsCmd GhcTc) where
   check (HsCmdWrap _ _ e) = check e
   check XCmd{} = return True
 
+
+-- | This is used when checking function definitions. If the context
+-- is not ticked, it stays the same. Otherwise, it is stabilized
+-- (similar to 'box').
 stabilizeLater :: Ctxt -> Ctxt
 stabilizeLater c =
   if isJust (earlier c)
   then c {earlier = Nothing,
           hidden = hid,
-          hiddenRec = maybe (hiddenRec c) (Map.union (hidden c) . Map.fromSet (const FunDef)) (fst <$> recDef c),
+          hiddenRec = maybe (hiddenRec c) (Map.union (hidden c) . Map.fromSet (const FunDef))
+                      (fst <$> recDef c),
           recDef = Nothing}
-  else c {earlier = Nothing,
-          hidden = hid}
+  else c
   where hid = maybe (hidden c) (Map.union (hidden c) . Map.fromSet (const FunDef)) (earlier c)
 
 
@@ -427,7 +485,9 @@ instance Scope (HsBindLR GhcTc GhcTc) where
   check XHsBindsLR {} = return True
 
 
-
+-- | Checks whether the given type is a type constraint of the form
+-- @Stable a@ for some type variable @a@. In that case it returns the
+-- type variable @a@.
 isStableConstr :: Type -> Maybe TyVar
 isStableConstr t = 
   case splitTyConApp_maybe t of
@@ -440,8 +500,17 @@ isStableConstr t =
         _ -> Nothing                           
     _ ->  Nothing
 
+
+-- | Given a type @(C1, ... Cn) => t@, this function returns the list
+-- of type variables @[a1,...,am]@ for which there is a constraint
+-- @Stable ai@ among @C1, ... Cn@.
 extractStableConstr :: Type -> [TyVar]
 extractStableConstr  = mapMaybe isStableConstr . fst . splitFunTys . snd . splitForAllTys
+
+
+-- | Checks a top-level definition group, which is either a single
+-- non-recursive definition or a group of (mutual) recursive
+-- definitions.
 
 checkSCC :: SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> TcM Bool
 checkSCC (AcyclicSCC (b,_)) = setCtxt (emptyCtxt Nothing) (check b)
@@ -451,6 +520,10 @@ checkSCC (CyclicSCC bs) = (fmap and (mapM check' bs'))
         vs = foldMap snd bs
         check' b@(L l _) = setCtxt (emptyCtxt (Just (vs,l))) (check b)
 
+-- | Stabilizes the given context, i.e. remove all non-stable types
+-- and any tick. This is performed on checking 'box', 'arr' and
+-- guarded recursive definitions. To provide better error messages a
+-- reason has to be given as well.
 stabilize :: HiddenReason -> Ctxt -> Ctxt
 stabilize hr c = c
   {current = Set.empty,
@@ -463,6 +536,8 @@ stabilize hr c = c
 
 data VarScope = Hidden SDoc | Visible | ImplUnboxed
 
+
+-- | This function checks whether the given variable is in scope.
 getScope  :: GetCtxt => Var -> VarScope
 getScope v =
   case ?ctxt of
@@ -507,6 +582,7 @@ getScope v =
                 -> ImplUnboxed
               | otherwise -> Visible
 
+-- | A map from the syntax of a primitive of Rattus to 'Prim'.
 primMap :: Map FastString Prim
 primMap = Map.fromList
   [("Delay", Delay),
@@ -516,6 +592,8 @@ primMap = Map.fromList
    ("arr", Arr),
    ("unbox", Unbox)]
 
+
+-- | Checks whether a given variable is in fact a Rattus primitive.
 isPrim :: GetCtxt => Var -> Maybe Prim
 isPrim v
   | Just p <- Map.lookup v (primAlias ?ctxt) = Just p
@@ -525,7 +603,7 @@ isPrim v
   else Nothing
 
 
-
+-- | Checks whether a given expression is in fact a Rattus primitive.
 isPrimExpr :: GetCtxt => LHsExpr GhcTc -> Maybe (Prim,Var)
 isPrimExpr (L _ e) = isPrimExpr' e where
   isPrimExpr' :: GetCtxt => HsExpr GhcTc -> Maybe (Prim,Var)
@@ -545,6 +623,9 @@ isPrimExpr (L _ e) = isPrimExpr' e where
   isPrimExpr' _ = Nothing
 
 
+-- | This type class provides default implementations for 'check' and
+-- 'checkBind' for Haskell syntax that is not supported. These default
+-- implementations simply print an error message.
 class NotSupported a where
   notSupported :: GetCtxt => SDoc -> TcM a
 
@@ -555,13 +636,16 @@ instance NotSupported (Bool,Set Var) where
   notSupported doc = (,Set.empty) <$> notSupported doc
 
 
+-- | Add variables to the current context.
 addVars :: Set Var -> Ctxt -> Ctxt
 addVars vs c = c{current = vs `Set.union` current c }
 
-
+-- | Print a message with the current location.
 printMessage' :: GetCtxt => Severity -> SDoc ->  TcM ()
 printMessage' sev doc = printMessage sev (srcLoc ?ctxt) doc
 
+-- | Print a message with the current location. Returns 'False', if
+-- the severity is 'SevError' and otherwise 'True.
 printMessageCheck :: GetCtxt =>  Severity -> SDoc -> TcM Bool
 printMessageCheck sev doc = printMessage' sev doc >>
   case sev of
