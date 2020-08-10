@@ -1,3 +1,11 @@
+0.3
+---
+
+Rattus code is now checked just after GHC's type checking phase
+(instead of after desugaring to Core). As a consequence, error
+messages for some corner cases are much improved and we don't need
+to use the -g2 compiler option anymore to get good error messages.
+
 0.2
 ---
 

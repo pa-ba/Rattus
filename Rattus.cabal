@@ -1,6 +1,6 @@
 cabal-version:       1.18
 name:                Rattus
-version:             0.2
+version:             0.3
 category:            FRP
 synopsis:            A modal FRP language
 description:
