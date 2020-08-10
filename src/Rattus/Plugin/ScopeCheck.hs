@@ -78,7 +78,7 @@ data Ctxt = Ctxt
     -- | This flag indicates whether the context was 'stabilized'
     -- (stripped of all non-stable stuff). It is set when typechecking
     -- 'box', 'arr' and guarded recursion.
-    stabilized :: Bool}
+    stabilized :: Maybe StableReason}
   deriving Show
 
 
@@ -96,7 +96,9 @@ emptyCtxt mvar =
          recDef = mvar,
          primAlias = Map.empty,
          stableTypes = Set.empty,
-         stabilized = isJust mvar}
+         stabilized = case mvar of
+           Just (_,loc) ->  Just (StableRec loc)
+           _  ->  Nothing}
 
 -- | A local context, consisting of a set of variables.
 type LCtxt = Set Var
@@ -105,8 +107,13 @@ type LCtxt = Set Var
 -- recursive definition starts
 type RecDef = (Set Var, SrcSpan)
 
+
+
+
+data StableReason = StableRec SrcSpan | StableBox | StableArr deriving Show
+
 -- | Indicates, why a variable has fallen out of scope.
-data HiddenReason = NestedRec SrcSpan | FunDef | BoxApp | AdvApp | ArrowNotation deriving Show
+data HiddenReason = Stabilize StableReason | FunDef | AdvApp deriving Show
 
 -- | Hidden context, containing variables that have fallen out of
 -- context along with the reason why they have.
@@ -229,14 +236,17 @@ instance Scope a => Scope (GRHS GhcTc a) where
     return (r && r')
   check XGRHS{} = return True
 
+
+
+
 instance ScopeBind (SCC (LHsBindLR GhcTc GhcTc, Set Var)) where
   checkBind (AcyclicSCC (b,vs)) = (, vs) <$> check b
   checkBind (CyclicSCC bs) = do
     res <- fmap and (mapM check' bs')
-    when (res && stabilized ?ctxt) 
-      (printMessage' SevWarning
-        (text "recursive definition nested inside a box or annother recursive definition can cause time leaks"))
-    return (res, vs)
+    case stabilized ?ctxt of
+      Just reason | res ->
+        (printMessage' SevWarning (recReason reason <> " can cause time leaks")) >> return (res, vs)
+      _ -> return (res, vs)
     where bs' = map fst bs
           vs = foldMap snd bs
           check' b@(L l _) = fc l `modifyCtxt` check b
@@ -246,9 +256,9 @@ instance ScopeBind (SCC (LHsBindLR GhcTc GhcTc, Set Var)) where
             in c {current = Set.empty,
                   earlier = Nothing,
                   hidden =  hidden c `Map.union`
-                            (Map.fromSet (const (NestedRec l)) recHid),
+                            (Map.fromSet (const (Stabilize (StableRec l))) recHid),
                   recDef = Just (vs,l),
-                  stabilized = True}
+                  stabilized = Just (StableRec l)}
 
 instance ScopeBind (HsValBindsLR GhcTc GhcTc) where
   checkBind (ValBinds _ bs _) = checkBind (dependency bs)
@@ -271,15 +281,20 @@ getAllBV (L _ b) = getAllBV' b where
   getAllBV' XHsBindsLR{} = Set.empty
 
 
+recReason (StableRec _) = "nested recursive definitions"
+recReason StableBox = "recursive definitions nested under box"
+recReason StableArr = "recursive definitions nested under arr"
+
 instance ScopeBind (RecFlag, LHsBinds GhcTc) where
   checkBind (NonRecursive, bs)  = checkBind $ bagToList bs
   checkBind (Recursive, bs)  = do
     res <- fmap and (mapM check' bs')
-    when (res && stabilized ?ctxt) 
-      (printMessage' SevWarning
-        (text "recursive definition nested inside a box or annother recursive definition can cause time leaks"))
-    return (res, vs)
-    where bs' = bagToList bs
+    case stabilized ?ctxt of
+      Just reason | res ->
+        (printMessage' SevWarning (recReason reason <>" can cause time leaks")) >> return (res,vs)
+      _ -> return (res, vs)
+    where 
+          bs' = bagToList bs
           vs = foldMap getAllBV bs'
           check' b@(L l _) = fc l `modifyCtxt` check b
           fc l c = let
@@ -288,9 +303,9 @@ instance ScopeBind (RecFlag, LHsBinds GhcTc) where
             in c {current = Set.empty,
                   earlier = Nothing,
                   hidden =  hidden c `Map.union`
-                            (Map.fromSet (const (NestedRec l)) recHid),
+                            (Map.fromSet (const (Stabilize (StableRec l))) recHid),
                   recDef = Just (vs,l),
-                  stabilized = True}
+                  stabilized = Just (StableRec l)}
 
 
 instance ScopeBind (HsLocalBindsLR GhcTc GhcTc) where
@@ -309,6 +324,15 @@ instance Scope a => Scope (GRHSs GhcTc a) where
 instance Show Var where
   show v = getOccString v
 
+
+boxReason StableBox = "Nested use of box"
+boxReason StableArr = "The use of box in the scope of arr"
+boxReason (StableRec _ ) = "The use of box in a recursive definition"
+
+arrReason StableArr = "Nested use of arr"
+arrReason StableBox = "The use of arr in the scope of box"
+arrReason (StableRec _) = "The use of arr in a recursive definition"
+
 instance Scope (HsExpr GhcTc) where
   check (HsVar _ (L _ v))
     | Just p <- isPrim v =
@@ -324,19 +348,18 @@ instance Scope (HsExpr GhcTc) where
     case isPrimExpr e1 of
     Just (p,_) -> case p of
       Box -> do
-        ch <- stabilize BoxApp `modifyCtxt` check e2
-        -- don't bother with a warning if the scopecheck fails
-        when (ch && stabilized ?ctxt) --TODO  && not (isStable (stableTypes ?ctxt) (exprType e2)))
-          (printMessage' SevWarning
-           (text "When box is used inside another box or a recursive definition, it can cause time leaks"))
-        return ch
+        ch <- stabilize StableBox `modifyCtxt` check e2
+        case stabilized ?ctxt of
+          Just reason | ch ->
+            (printMessage' SevWarning (boxReason reason <> " can cause time leaks")) >> return ch
+          _ -> return ch
       Arr -> do
-        ch <- stabilize BoxApp `modifyCtxt` check e2
+        ch <- stabilize StableArr `modifyCtxt` check e2
         -- don't bother with a warning if the scopecheck fails
-        when (ch && stabilized ?ctxt) -- && not (isStable (stableTypes c) (exprType e2)))
-          (printMessage' SevWarning
-            (text "When arr is used inside box or a recursive definition, it can cause time leaks"))
-        return ch
+        case stabilized ?ctxt of
+          Just reason | ch ->
+            printMessage' SevWarning (arrReason reason <> " can cause time leaks") >> return ch
+          _ -> return ch
 
       Unbox -> check e2
       Delay -> case earlier ?ctxt of
@@ -400,7 +423,7 @@ instance Scope (HsExpr GhcTc) where
   check HsTcBracketOut{} = notSupported "MetaHaskell"
   check HsSpliceE{} = notSupported "Template Haskell"
   check (HsProc _ p e) = mod `modifyCtxt` check e
-    where mod c = addVars (getBV p) (stabilize ArrowNotation c)
+    where mod c = addVars (getBV p) (stabilize StableArr c)
   check (HsStatic _ e) = check e
   check (HsDo _ _ e) = fst <$> checkBind e
   check (HsCoreAnn _ _ _ e) = check e
@@ -524,15 +547,16 @@ checkSCC (CyclicSCC bs) = (fmap and (mapM check' bs'))
 -- and any tick. This is performed on checking 'box', 'arr' and
 -- guarded recursive definitions. To provide better error messages a
 -- reason has to be given as well.
-stabilize :: HiddenReason -> Ctxt -> Ctxt
-stabilize hr c = c
+stabilize :: StableReason -> Ctxt -> Ctxt
+stabilize sr c = c
   {current = Set.empty,
    earlier = Nothing,
    hidden = hidden c `Map.union` Map.fromSet (const hr) ctxHid,
    hiddenRec = hiddenRec c `Map.union` maybe Map.empty (Map.fromSet (const hr) . fst) (recDef c),
    recDef = Nothing,
-   stabilized = True}
+   stabilized = Just sr}
   where ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
+        hr = Stabilize sr
 
 data VarScope = Hidden SDoc | Visible | ImplUnboxed
 
@@ -548,24 +572,24 @@ getScope v =
           Nothing -> Hidden ("(Mutually) recursive call to " <> ppr v <> " must occur under delay")
     _ ->
       case Map.lookup v (hiddenRec ?ctxt) of
-        Just (NestedRec rv) -> Hidden ("Recursive call to" <> ppr v <>
+        Just (Stabilize (StableRec rv)) -> Hidden ("Recursive call to" <> ppr v <>
                             " is not allowed as it occurs in a local recursive definiton (at " <> ppr rv <> ")")
-        Just BoxApp -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs under a box")
-        Just ArrowNotation -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs inside an arrow notation")
+        Just (Stabilize StableBox) -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs under a box")
+        Just (Stabilize StableArr) -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs inside an arrow notation")
         Just FunDef -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs in a function that is defined under delay")
         Just AdvApp -> Hidden ("This should not happen: recursive call to " <> ppr v <> " is out of scope due to adv")
         Nothing -> 
           case Map.lookup v (hidden ?ctxt) of
-            Just (NestedRec rv) ->
+            Just (Stabilize (StableRec rv)) ->
               if (isStable (stableTypes ?ctxt) (varType v)) then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
                        "It appears in a local recursive definiton (at " <> ppr rv <> ")"
                        $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
-            Just BoxApp ->
+            Just (Stabilize StableBox) ->
               if (isStable (stableTypes ?ctxt) (varType v)) then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
                        "It occurs under " <> keyword "box" $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
-            Just ArrowNotation ->
+            Just (Stabilize StableArr) ->
               if (isStable (stableTypes ?ctxt) (varType v)) then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
                        "It occurs under inside an arrow notation and is of type " <> ppr (varType v) <> ", which is not stable.")
