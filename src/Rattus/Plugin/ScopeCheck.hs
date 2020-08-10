@@ -239,17 +239,17 @@ instance Scope a => Scope (GRHS GhcTc a) where
 
 
 
-instance ScopeBind (SCC (LHsBindLR GhcTc GhcTc, Set Var)) where
-  checkBind (AcyclicSCC (b,vs)) = (, vs) <$> check b
-  checkBind (CyclicSCC bs) = do
-    res <- fmap and (mapM check' bs')
+-- | Check the scope of a list of (mutual) recursive bindings. The
+-- second argument is the set of variables defined by the (mutual)
+-- recursive bindings
+checkRecursiveBinds :: GetCtxt => [LHsBindLR GhcTc GhcTc] -> Set Var -> TcM (Bool, Set Var)
+checkRecursiveBinds bs vs = do
+    res <- fmap and (mapM check' bs)
     case stabilized ?ctxt of
       Just reason | res ->
         (printMessage' SevWarning (recReason reason <> " can cause time leaks")) >> return (res, vs)
       _ -> return (res, vs)
-    where bs' = map fst bs
-          vs = foldMap snd bs
-          check' b@(L l _) = fc l `modifyCtxt` check b
+    where check' b@(L l _) = fc l `modifyCtxt` check b
           fc l c = let
             ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
             recHid = maybe ctxHid (Set.union ctxHid . fst) (recDef c)
@@ -260,6 +260,17 @@ instance ScopeBind (SCC (LHsBindLR GhcTc GhcTc, Set Var)) where
                   recDef = Just (vs,l),
                   stabilized = Just (StableRec l)}
 
+          recReason :: StableReason -> SDoc
+          recReason (StableRec _) = "nested recursive definitions"
+          recReason StableBox = "recursive definitions nested under box"
+          recReason StableArr = "recursive definitions nested under arr"
+
+
+
+instance ScopeBind (SCC (LHsBindLR GhcTc GhcTc, Set Var)) where
+  checkBind (AcyclicSCC (b,vs)) = (, vs) <$> check b
+  checkBind (CyclicSCC bs) = checkRecursiveBinds (map fst bs) (foldMap snd bs)
+  
 instance ScopeBind (HsValBindsLR GhcTc GhcTc) where
   checkBind (ValBinds _ bs _) = checkBind (dependency bs)
   
@@ -281,31 +292,11 @@ getAllBV (L _ b) = getAllBV' b where
   getAllBV' XHsBindsLR{} = Set.empty
 
 
-recReason (StableRec _) = "nested recursive definitions"
-recReason StableBox = "recursive definitions nested under box"
-recReason StableArr = "recursive definitions nested under arr"
-
+-- Check nested bindings
 instance ScopeBind (RecFlag, LHsBinds GhcTc) where
   checkBind (NonRecursive, bs)  = checkBind $ bagToList bs
-  checkBind (Recursive, bs)  = do
-    res <- fmap and (mapM check' bs')
-    case stabilized ?ctxt of
-      Just reason | res ->
-        (printMessage' SevWarning (recReason reason <>" can cause time leaks")) >> return (res,vs)
-      _ -> return (res, vs)
-    where 
-          bs' = bagToList bs
-          vs = foldMap getAllBV bs'
-          check' b@(L l _) = fc l `modifyCtxt` check b
-          fc l c = let
-            ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
-            recHid = maybe ctxHid (Set.union ctxHid . fst) (recDef c)
-            in c {current = Set.empty,
-                  earlier = Nothing,
-                  hidden =  hidden c `Map.union`
-                            (Map.fromSet (const (Stabilize (StableRec l))) recHid),
-                  recDef = Just (vs,l),
-                  stabilized = Just (StableRec l)}
+  checkBind (Recursive, bs) = checkRecursiveBinds bs' (foldMap getAllBV bs')
+    where bs' = bagToList bs
 
 
 instance ScopeBind (HsLocalBindsLR GhcTc GhcTc) where
