@@ -62,6 +62,18 @@ map3 :: Box (a -> b) -> Str a -> Str b
 map3 f = run
   where run (x ::: xs) = unbox f x ::: (delay run <*> xs)
 
+
+-- local mutual recursive definition
+nestedMutual :: Str Int -> Str Int
+nestedMutual = lbar1 (box (+1))
+  where lbar1 :: Box (a -> b) -> Str a -> Str b
+        lbar1 f (x ::: xs) = unbox f x ::: (delay (lbar2 f) <*> xs)
+
+        lbar2 :: Box (a -> b) -> Str a -> Str b
+        lbar2 f  (x ::: xs) = unbox f x ::: (delay (lbar1 f) <*> xs)
+
+
+
 -- mutual recursive definition
 bar1 :: Box (a -> b) -> Str a -> Str b
 bar1 f (x ::: xs) = unbox f x ::: (delay (bar2 f) <*> xs)

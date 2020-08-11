@@ -30,7 +30,7 @@ import Prelude hiding (map, const, zipWith, zip, filter)
 import Data.VectorSpace
 
 -- | @Str a@ is a stream of values of type @a@.
-data Str a = ! a ::: (O (Str a))
+data Str a = ! a ::: !(O (Str a))
 
 -- all functions in this module are in Rattus 
 {-# ANN module Rattus #-}

@@ -184,7 +184,7 @@ isStrictRec d pr t = do
             case algTyConRhs con of
               DataTyCon {data_cons = cons, is_enum = enum}
                 | enum -> True
-                | and $ (map (isSrcStrictOrDelay args)) $ cons ->
+                | and $ (map (areSrcStrict args)) $ cons ->
                   and  (map check cons)
                 | otherwise -> False
                 where check con = case dataConInstSig con args of
@@ -197,17 +197,12 @@ isStrictRec d pr t = do
 
 
 
-isSrcStrictOrDelay :: [Type] -> DataCon -> Bool
-isSrcStrictOrDelay args con = and (zipWith check tys (dataConSrcBangs con))
+areSrcStrict :: [Type] -> DataCon -> Bool
+areSrcStrict args con = and (zipWith check tys (dataConSrcBangs con))
   where (_, _,tys) = dataConInstSig con args 
-        check ty b = isSrcStrict' b || isDelay ty
-        isDelay ty = case splitTyConApp_maybe ty of
-                       Just (con,_) ->
-                         case getNameModule con of
-                           Just (name,mod) | isRattModule mod && name == "O" -> True
-                           _ -> False
-                       _ -> False
+        check _ b = isSrcStrict' b
 
+isSrcStrict' :: HsSrcBang -> Bool
 isSrcStrict' (HsSrcBang _ _ SrcStrict) = True
 isSrcStrict' _ = False
 

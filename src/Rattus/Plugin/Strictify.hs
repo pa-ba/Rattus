@@ -8,7 +8,10 @@ import GhcPlugins
 
 data SCxt = SCxt {srcSpan :: SrcSpan, checkStrictData :: Bool}
 
-
+-- | Transforms all functions into strict functions. If the
+-- 'checkStrictData' field of the 'SCxt' argument is set to @True@,
+-- then this function also checks for use of non-strict data types and
+-- produces warnings if it finds any.
 strictifyExpr :: SCxt -> CoreExpr -> CoreM CoreExpr
 strictifyExpr ss (Let (NonRec b e1) e2) = do
   e1' <- strictifyExpr ss e1

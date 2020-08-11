@@ -25,7 +25,7 @@ import Prelude hiding ((<*>), map)
 
 
 -- | An event may either occur now or later.
-data Event a = Now !a | Wait (O (Event a))
+data Event a = Now !a | Wait !(O (Event a))
 
 -- all functions in this module are in Rattus 
 {-# ANN module Rattus #-}
