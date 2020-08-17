@@ -1,6 +1,6 @@
 cabal-version:       1.18
 name:                Rattus
-version:             0.3
+version:             0.3.1
 category:            FRP
 synopsis:            A modal FRP language
 description:
@@ -198,5 +198,5 @@ Test-Suite rewrite
   hs-source-dirs:      test
   default-language:    Haskell2010
   build-depends:       Rattus, base, containers
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -ddump-rule-firings
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts
 

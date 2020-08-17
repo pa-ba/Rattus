@@ -1,3 +1,10 @@
+0.3.1
+-----
+
+Guarded recursive types Str and Event are now fully strict (i.e. in
+particular, they are strict in the component that is of a later type)
+as they should be.
+
 0.3
 ---
 
