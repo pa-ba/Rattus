@@ -47,18 +47,15 @@ tl (_ ::: xs) = xs
 
 -- | Apply a function to each element of a stream.
 map :: Box (a -> b) -> Str a -> Str b
-{-# NOINLINE [1] map #-}
 map f (x ::: xs) = unbox f x ::: delay (map f (adv xs))
 
 
 -- | Construct a stream that has the same given value at each step.
-{-# NOINLINE [1] const #-}
 const :: Stable a => a -> Str a
 const a = a ::: delay (const a)
 
 -- | Variant of 'const' that allows any type @a@ as argument as long
 -- as it is boxed.
-{-# NOINLINE [1] constBox #-}
 constBox :: Box a -> Str a
 constBox a = unbox a ::: delay (constBox a)
 
@@ -73,7 +70,6 @@ unfold f x = x ::: delay (unfold f (unbox f x))
 -- > scan (box f) x (v1 ::: v2 ::: v3 ::: ... ) == (x `f` v1) ::: ((x `f` v1) `f` v2) ::: ...
 --
 -- Note: Unlike 'scanl', 'scan' starts with @x `f` v1@, not @x@.
-{-# NOINLINE [1] scan #-}
 scan :: (Stable b) => Box(b -> a -> b) -> b -> Str a -> Str b
 scan f acc (a ::: as) =  acc' ::: delay (scan f acc' (adv as))
   where acc' = unbox f acc a
@@ -81,7 +77,6 @@ scan f acc (a ::: as) =  acc' ::: delay (scan f acc' (adv as))
 -- | 'scanMap' is a composition of 'map' and 'scan':
 --
 -- > scanMap f g x === map g . scan f x
-{-# NOINLINE [1] scanMap #-}
 scanMap :: (Stable b) => Box(b -> a -> b) -> Box (b -> c) -> b -> Str a -> Str c
 scanMap f p acc (a ::: as) =  unbox p acc' ::: delay (scanMap f p acc' (adv as))
   where acc' = unbox f acc a
@@ -98,7 +93,6 @@ zipWith :: Box(a -> b -> c) -> Str a -> Str b -> Str c
 zipWith f (a ::: as) (b ::: bs) = unbox f a b ::: delay (zipWith f (adv as) (adv bs))
 
 -- | Similar to 'Prelude.zip' on Haskell lists.
-{-# NOINLINE [1] zip #-}
 zip :: Str a -> Str b -> Str (a:*b)
 zip (a ::: as) (b ::: bs) =  (a :* b) ::: delay (zip (adv as) (adv bs))
 
@@ -135,6 +129,16 @@ integral :: (Stable a, VectorSpace a s) => a -> Str s -> Str a -> Str a
 integral acc (t ::: ts) (a ::: as) = acc' ::: delay (integral acc' (adv ts) (adv as))
   where acc' = acc ^+^ (t *^ a)
 
+
+-- Prevent functions from being inlined too early for the rewrite
+-- rules to fire.
+
+{-# NOINLINE [1] map #-}
+{-# NOINLINE [1] const #-}
+{-# NOINLINE [1] constBox #-}
+{-# NOINLINE [1] scan #-}
+{-# NOINLINE [1] scanMap #-}
+{-# NOINLINE [1] zip #-}
 
 
 {-# RULES
