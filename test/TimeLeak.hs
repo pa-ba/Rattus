@@ -10,10 +10,12 @@ import Prelude hiding ((<*>), map)
 
 {-# ANN module Rattus #-}
 
+
+-- | This function should be fine (no warnings, no time-leaks)
 nats' :: Str Int
 nats' = unfold (box ((+) 1)) 0
 
-
+-- | This function should be fine (no warnings, no time-leaks)
 nats :: Str Int
 nats = from  0
     where from :: Int -> Str Int
@@ -41,7 +43,7 @@ leakyAlt :: Str Int
 leakyAlt = 0 ::: delay (altMap (box ((+)1)) (box ((+)2)) leakyAlt)
 
 
-
+-- This function should cause a warning.
 mapMap :: Box (a -> a) -> Box (a -> a) -> Str a -> Str a
 mapMap f g (x ::: xs) = unbox f x ::: delay (map g (mapMap g f (adv xs)))
 
@@ -64,10 +66,11 @@ boxLeaky' = run (box (\() -> 1)) 1
   where run :: Box (() -> Int) -> Int -> Str Int -> Str Int
         run f a (x ::: xs) = (if a == 0 then unbox f () else a) ::: delay (run (box (\ () -> (unbox f () + x))) a (adv xs))
 
-
+-- This function should cause a warning.
 natsTrans :: Str Int -> Str Int
 natsTrans (x ::: xs) = x ::: delay (map (box ((+)x)) $ natsTrans $ adv xs)
- 
+
+-- This function should cause a warning.
 leakySum :: Box (Int -> Int) -> Str Int -> Str Int
 leakySum f (x ::: xs) = unbox f x ::: (delay (leakySum (box (\ y -> unbox f (y + x)))) <*> xs)
 
