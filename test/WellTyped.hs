@@ -7,9 +7,8 @@ module Main (module Main) where
 import Rattus
 import Rattus.Stream
 import Rattus.Yampa
-import Prelude hiding ((<*>))
-import Data.Set
-import qualified Data.Set as Set
+import Data.Set as Set
+import Prelude
 
 
 {-# ANN module Rattus #-}
@@ -56,40 +55,40 @@ map1 :: Box (a -> b) -> Str a -> Str b
 map1 f (x ::: xs) = unbox f x ::: delay (map1 f (adv xs))
 
 map2 :: Box (a -> b) -> Str a -> Str b
-map2 f (x ::: xs) = unbox f x ::: (delay map2 <** f <*> xs)
+map2 f (x ::: xs) = unbox f x ::: (delay map2 <## f <#> xs)
 
 map3 :: Box (a -> b) -> Str a -> Str b
 map3 f = run
-  where run (x ::: xs) = unbox f x ::: (delay run <*> xs)
+  where run (x ::: xs) = unbox f x ::: (delay run <#> xs)
 
 
 -- local mutual recursive definition
 nestedMutual :: Str Int -> Str Int
 nestedMutual = lbar1 (box (+1))
   where lbar1 :: Box (a -> b) -> Str a -> Str b
-        lbar1 f (x ::: xs) = unbox f x ::: (delay (lbar2 f) <*> xs)
+        lbar1 f (x ::: xs) = unbox f x ::: (delay (lbar2 f) <#> xs)
 
         lbar2 :: Box (a -> b) -> Str a -> Str b
-        lbar2 f  (x ::: xs) = unbox f x ::: (delay (lbar1 f) <*> xs)
+        lbar2 f  (x ::: xs) = unbox f x ::: (delay (lbar1 f) <#> xs)
 
 
 
 -- mutual recursive definition
 bar1 :: Box (a -> b) -> Str a -> Str b
-bar1 f (x ::: xs) = unbox f x ::: (delay (bar2 f) <*> xs)
+bar1 f (x ::: xs) = unbox f x ::: (delay (bar2 f) <#> xs)
 
 bar2 :: Box (a -> b) -> Str a -> Str b
-bar2 f  (x ::: xs) = unbox f x ::: (delay (bar1 f) <*> xs)
+bar2 f  (x ::: xs) = unbox f x ::: (delay (bar1 f) <#> xs)
 
 
 -- mutual recursive definition
 foo1,foo2 :: Box (a -> b) -> Str a -> Str b
-(foo1,foo2) = (\ f (x ::: xs) -> unbox f x ::: (delay (foo2 f) <*> xs),
-               \ f (x ::: xs) -> unbox f x ::: (delay (foo1 f) <*> xs))
+(foo1,foo2) = (\ f (x ::: xs) -> unbox f x ::: (delay (foo2 f) <#> xs),
+               \ f (x ::: xs) -> unbox f x ::: (delay (foo1 f) <#> xs))
 
 
 applyDelay :: O (O (a -> b)) -> O (O a) -> O (O b)
-applyDelay f x = delay (adv f <*> adv x)
+applyDelay f x = delay (adv f <#> adv x)
 
 
 stableDelay :: Stable a => a -> O a

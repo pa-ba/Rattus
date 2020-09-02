@@ -13,10 +13,10 @@ module Rattus (
   -- * Annotation
   Rattus(..),
   -- * Applicative operators
-  (|*|),
-  (|**),
-  (<*>),
-  (<**),
+  (|#|),
+  (|##),
+  (<#>),
+  (<##),
   -- * box for stable types
   box'
   )
@@ -26,32 +26,29 @@ import Rattus.Plugin
 import Rattus.Strict
 import Rattus.Primitives
 
-
-import Prelude hiding ((<*>))
-
 -- all functions in this module are in Rattus 
 {-# ANN module Rattus #-}
 
 
 -- | Applicative operator for 'O'.
-{-# INLINE (<*>) #-}
-(<*>) :: O (a -> b) -> O a -> O b
-f <*> x = delay (adv f (adv x))
+{-# INLINE (<#>) #-}
+(<#>) :: O (a -> b) -> O a -> O b
+f <#> x = delay (adv f (adv x))
 
--- | Variant of '<*>' where the argument is of a stable type..
-{-# INLINE (<**) #-}
-(<**) :: Stable a => O (a -> b) -> a -> O b
-f <** x = delay (adv f x)
+-- | Variant of '<#>' where the argument is of a stable type..
+{-# INLINE (<##) #-}
+(<##) :: Stable a => O (a -> b) -> a -> O b
+f <## x = delay (adv f x)
 
 -- | Applicative operator for 'Box'.
-{-# INLINE (|*|) #-}
-(|*|) :: Box (a -> b) -> Box a -> Box b
-f |*| x = box (unbox f (unbox x))
+{-# INLINE (|#|) #-}
+(|#|) :: Box (a -> b) -> Box a -> Box b
+f |#| x = box (unbox f (unbox x))
 
--- | Variant of '|*|' where the argument is of a stable type..
-{-# INLINE (|**) #-}
-(|**) :: Stable a => Box (a -> b) -> a -> Box b
-f |** x = box (unbox f x)
+-- | Variant of '|#|' where the argument is of a stable type..
+{-# INLINE (|##) #-}
+(|##) :: Stable a => Box (a -> b) -> a -> Box b
+f |## x = box (unbox f x)
 
 
 -- | Variant of 'box' for stable types that can be safely used nested

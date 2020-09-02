@@ -4,9 +4,9 @@
 module Main (module Main) where
 
 import Rattus
-import Rattus.Stream
+import Rattus.Stream as S
 import Rattus.Yampa
-import Prelude hiding ((<*>), map, const)
+import Prelude
 
 -- Uncomment the annotation below to check that the definitions in
 -- this module don't type check

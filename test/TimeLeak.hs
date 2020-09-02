@@ -1,12 +1,10 @@
 {-# LANGUAGE TypeOperators #-}
+
 module Main (module Main) where
 
 import Rattus
-import Rattus.Stream
+import Rattus.Stream as Str
 import Rattus.ToHaskell
-
-import Prelude hiding ((<*>), map)
-
 
 {-# ANN module Rattus #-}
 
@@ -23,10 +21,10 @@ nats = from  0
 
 -- This function should cause a warning.
 leakyNats :: Str Int
-leakyNats = 0 ::: delay (map (box (+1)) leakyNats)
+leakyNats = 0 ::: delay (Str.map (box (+1)) leakyNats)
 
 inc :: Str Int -> Str Int
-inc = map (box ((+)1))
+inc = Str.map (box ((+)1))
 
 -- This function should cause a warning.
 
@@ -45,7 +43,7 @@ leakyAlt = 0 ::: delay (altMap (box ((+)1)) (box ((+)2)) leakyAlt)
 
 -- This function should cause a warning.
 mapMap :: Box (a -> a) -> Box (a -> a) -> Str a -> Str a
-mapMap f g (x ::: xs) = unbox f x ::: delay (map g (mapMap g f (adv xs)))
+mapMap f g (x ::: xs) = unbox f x ::: delay (Str.map g (mapMap g f (adv xs)))
 
 -- This function should cause a warning.
 leakyMap :: Str Int
@@ -68,11 +66,11 @@ boxLeaky' = run (box (\() -> 1)) 1
 
 -- This function should cause a warning.
 natsTrans :: Str Int -> Str Int
-natsTrans (x ::: xs) = x ::: delay (map (box ((+)x)) $ natsTrans $ adv xs)
+natsTrans (x ::: xs) = x ::: delay (Str.map (box ((+)x)) $ natsTrans $ adv xs)
 
 -- This function should cause a warning.
 leakySum :: Box (Int -> Int) -> Str Int -> Str Int
-leakySum f (x ::: xs) = unbox f x ::: (delay (leakySum (box (\ y -> unbox f (y + x)))) <*> xs)
+leakySum f (x ::: xs) = unbox f x ::: (delay (leakySum (box (\ y -> unbox f (y + x)))) <#> xs)
 
 
 {-# ANN recurse NotRattus #-}

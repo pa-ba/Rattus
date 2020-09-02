@@ -18,9 +18,9 @@ where
 
 import Rattus
 import Rattus.Stream hiding (map)
-import qualified Rattus.Stream as S
+import qualified Rattus.Stream as Str
 
-import Prelude hiding ((<*>), map)
+import Prelude hiding (map)
 
 -- | Events are simply streams of 'Maybe''s.
 type Events a = Str (Maybe' a)
@@ -42,7 +42,7 @@ never = Nothing' ::: delay never
 -- the event 'e' occurs with some value @s'@.
 switch :: Str a -> Events (Str a) -> Str a
 switch (x ::: xs) (Nothing' ::: fas) = x ::: delay (switch (adv xs)  (adv fas))
-switch  _xs       (Just' (a ::: as) ::: fas)   = a ::: (delay switch <*> as <*> fas)
+switch  _xs       (Just' (a ::: as) ::: fas)   = a ::: (delay switch <#> as <#> fas)
 
 
 -- | Like 'switch' but works on stream functions instead of
@@ -54,8 +54,8 @@ switchTrans f es as = switchTrans' (f as) es as
 
 -- | Helper function for 'switchTrans'.
 switchTrans' :: Str b -> Events (Str a -> Str b) -> Str a -> Str b
-switchTrans' (b ::: bs) (Nothing' ::: fs) (_:::as) = b ::: (delay switchTrans' <*> bs <*> fs <*> as)
-switchTrans' _xs        (Just' f ::: fs)  as@(_:::as') = b' ::: (delay switchTrans' <*> bs' <*> fs <*> as')
+switchTrans' (b ::: bs) (Nothing' ::: fs) (_:::as) = b ::: (delay switchTrans' <#> bs <#> fs <#> as)
+switchTrans' _xs        (Just' f ::: fs)  as@(_:::as') = b' ::: (delay switchTrans' <#> bs' <#> fs <#> as')
   where (b' ::: bs') = f as
 
 
@@ -63,13 +63,13 @@ switchTrans' _xs        (Just' f ::: fs)  as@(_:::as') = b' ::: (delay switchTra
 -- the given stream. The value of the event is the same as that of the
 -- stream at that time.
 trigger :: Box (a -> Bool) -> Str a -> Events a
-trigger p (x ::: xs) = x' ::: (delay (trigger p) <*> xs)
+trigger p (x ::: xs) = x' ::: (delay (trigger p) <#> xs)
   where x' = if unbox p x then Just' x else Nothing'
 
 -- | Trigger an event every time the given function produces a 'Just''
 -- value.
 triggerMap :: Box (a -> Maybe' b) -> Str a -> Events b
-triggerMap = S.map
+triggerMap = Str.map
 
 
 
