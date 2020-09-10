@@ -87,7 +87,7 @@ movePadD Input{move = EndRight} delta | delta > 0 = 0
 movePadD _ delta = if delta < 100 && delta > -100 then delta * 1.3 else delta
 
 
-padStep :: HasReader Input r => (Float :* Float) -> Eff r (Float :* Float)
+padStep :: '[Input] < r => (Float :* Float) -> Eff r (Float :* Float)
 padStep (delta :* pos) = do
   inp <- ask
   let delta' = movePadD inp delta
@@ -95,7 +95,7 @@ padStep (delta :* pos) = do
   return (delta' :* pos')
 
 
-padPos :: HasReader Input r => EStr r Float
+padPos :: '[Input] < r => EStr r Float
 padPos = mapPure (box snd') (MStr.unfold (box padStep) (0:* 0))
 
 
@@ -105,11 +105,11 @@ padObj p (x :* y) =
   then Just' (0 :* 1)
   else Nothing'
 
-ballPos :: (HasReader PadPos r, HasReader Input r) =>  EStr r Pos
+ballPos :: '[PadPos, Input] < r => EStr r Pos
 ballPos = mapPure (box fst') (MStr.unfold (box ballStep) ((0:*0):*(20:*50)))
 
 
-ballStep :: (HasReader PadPos r, HasReader Input r) => (Pos :* Vel) -> Eff r (Pos :* Vel)
+ballStep :: '[PadPos, Input] < r => (Pos :* Vel) -> Eff r (Pos :* Vel)
 ballStep (p :* v) = do
   PadPos pad <- ask
   inp <- ask
@@ -117,7 +117,7 @@ ballStep (p :* v) = do
   return (p .+. (time inp .*. v') :* v')
 
 
-ballTrig :: (HasReader Input r, HasReader PadPos r) => Eff r (Maybe' (EStr r Pos))
+ballTrig :: '[Input, PadPos] < r => Eff r (Maybe' (EStr r Pos))
 ballTrig = do
   inp <- ask
   return (if reset inp then Just' ballPos else Nothing')

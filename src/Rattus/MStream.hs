@@ -1,3 +1,5 @@
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -14,6 +16,7 @@ import Rattus
 import Rattus.Stream hiding (const,map,integral,unfold, zip)
 import Control.Eff.Reader.Strict
 import Control.Eff
+import GHC.Types
 import Prelude hiding (map, const, zipWith, zip, filter)
 
 import Data.VectorSpace
@@ -50,7 +53,9 @@ map f (MStr xs) = MStr $ do
   x' <- unbox f x
   return (x' :* delay (map f (adv xs')))
 
-type HasReader a r = Member (Reader a) r
+type family (<) l t :: Constraint where
+  '[] < _ = ()
+  (t ': ts) < r = (Member (Reader t) r, ts < r)
 
 
 unfold :: (Stable b,Functor m) => Box(b -> m b) -> b -> MStr m b
@@ -104,7 +109,7 @@ type DTime = Double
 -- | Calculates an approximation of an integral of the stream of type
 -- @Str a@ (the y-axis), where the stream of type @Str s@ provides the
 -- distance between measurements (i.e. the distance along the y axis).
-integral :: (Stable a, VectorSpace a DTime, Member (Reader DTime) r) => a -> EStr r a -> EStr r a
+integral :: (Stable a, VectorSpace a DTime, '[DTime] < r) => a -> EStr r a -> EStr r a
 integral acc (MStr as') = MStr $ do
   (a :* as) <- as'
   t <- ask
