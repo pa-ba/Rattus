@@ -137,6 +137,7 @@ custom-setup
 library
   exposed-modules:     Rattus
                        Rattus.Stream
+                       Rattus.MStream
                        Rattus.Strict
                        Rattus.Event
                        Rattus.Events
@@ -153,7 +154,7 @@ library
                        Rattus.Plugin.Utils
                        Rattus.Plugin.Dependency
                        Rattus.Plugin.StableSolver
-  build-depends:       base >=4.12 && <5, containers, simple-affine-space, ghc >= 8.6 && < 8.11
+  build-depends:       base >=4.12 && <5, containers, simple-affine-space, ghc >= 8.6 && < 8.11, extensible-effects
   hs-source-dirs:      src
   default-language:    Haskell2010
   ghc-options:         -W
