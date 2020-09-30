@@ -8,7 +8,7 @@ module Behaviour where
 
 import Rattus
 
-import Rattus.MStream as MStr
+import MStream as MStr
 import Rattus.Stream (Str)
 
 import Prelude hiding ((<*>),zip,map,zipWith)

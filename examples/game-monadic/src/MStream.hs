@@ -10,7 +10,7 @@
 
 -- | Programming with monadic streams.
 
-module Rattus.MStream where
+module MStream where
 
 import Rattus
 import Rattus.Stream hiding (const,map,integral,unfold, zip)
