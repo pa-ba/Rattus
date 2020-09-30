@@ -8,7 +8,6 @@ module Behaviour where
 import GHC.Float
 import Rattus
 import Rattus.Yampa
-import Rattus.Events hiding (map)
 import Prelude hiding ((<*>),zip,map,scan,zipWith)
 
 data Input = Input {reset :: ! Bool, move :: ! Move}

@@ -4,7 +4,7 @@ module Behaviour where
 
 import Rattus
 import Rattus.Stream
-import Rattus.Events hiding (map)
+import Rattus.Event hiding (map)
 import Prelude hiding ((<*>),zip,map,scan,zipWith)
 
 

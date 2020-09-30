@@ -139,7 +139,7 @@ library
                        Rattus.Stream
                        Rattus.Strict
                        Rattus.Event
-                       Rattus.Events
+                       Rattus.Future
                        Rattus.ToHaskell
                        Rattus.Yampa
                        
