@@ -180,7 +180,15 @@ Test-Suite ill-typed
   main-is:             test/IllTyped.hs
   default-language:    Haskell2010
   build-depends:       Rattus, base
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts
+  ghc-options:         
+                       -fplugin=Rattus.Plugin -rtsopts
+
+Test-Suite newly-typed
+  type:                exitcode-stdio-1.0
+  main-is:             test/NewlyTyped.hs
+  default-language:    Haskell2010
+  build-depends:       Rattus, base
+  ghc-options:         -fplugin=Rattus.Plugin
 
 
 Test-Suite well-typed

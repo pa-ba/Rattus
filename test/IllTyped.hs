@@ -14,6 +14,23 @@ import Prelude
 -- {-# ANN module Rattus #-}
 
 
+
+loopIndirect :: Str Int
+loopIndirect = run
+  where run :: Str Int
+        run = loopIndirect
+
+        
+loopIndirect' :: Str Int
+loopIndirect' = let run = loopIndirect' in run
+
+
+nestedUnguard :: Str Int
+nestedUnguard = run 0
+  where run :: Int -> Str Int
+        run 0 = nestedUnguard
+        run n = n ::: delay (run (n-1))
+
 sfLeak :: O Int -> SF () (O Int)
 sfLeak  x = proc _ -> do
   returnA -< x
@@ -27,21 +44,11 @@ advDelay' y = let x = adv y in x
 dblAdv :: O (O a) -> O a
 dblAdv y = delay (adv (adv y))
 
-dblDelay :: O (O Int)
-dblDelay = delay (delay 1)
-
 lambdaUnderDelay :: O (O Int -> Int -> Int)
 lambdaUnderDelay = delay (\x _ -> adv x)
 
 sneakyLambdaUnderDelay :: O (Int -> Int)
 sneakyLambdaUnderDelay = delay (let f _ =  adv (delay 1) in f)
-
-
-lambdaUnderDelay' :: O Int -> O (Int -> O Int)
-lambdaUnderDelay' x = delay (\_ -> x)
-
-sneakyLambdaUnderDelay' :: O Int -> O (Int -> O Int)
-sneakyLambdaUnderDelay' x = delay (let f _ =  x in f)
 
 leaky :: (() -> Bool) -> Str Bool
 leaky p = p () ::: delay (leaky (\ _ -> hd (leaky (\ _ -> True))))
@@ -72,9 +79,6 @@ mutualLoop = mutualLoop'
 
 mutualLoop' :: a
 mutualLoop' = mutualLoop
-
-zeros :: Box (Str Int)
-zeros = box (0 ::: delay (unbox zeros))
 
 constUnstable :: a -> Str a
 constUnstable a = run

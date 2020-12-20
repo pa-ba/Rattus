@@ -7,7 +7,7 @@
 -- (mutual) recursive. To this end, this module also provides a
 -- functions to compute, bound variables and variable occurrences.
 
-module Rattus.Plugin.Dependency (dependency, HasBV (..)) where
+module Rattus.Plugin.Dependency (dependency, HasBV (..),printBinds) where
 
 
 import GhcPlugins
@@ -58,16 +58,16 @@ dependency binds = map AcyclicSCC noDeps ++ catMaybes (map filterJust (stronglyC
         filterJust (CyclicSCC bs) = Just (CyclicSCC (catMaybes bs))
 
 
--- printBinds (AcyclicSCC bind) = liftIO (putStr "acyclic bind: ") >> printBind (fst bind) >> liftIO (putStrLn "") 
--- printBinds (CyclicSCC binds) = liftIO (putStr "cyclic binds: ") >> mapM_ (printBind . fst) binds >> liftIO (putStrLn "") 
+printBinds (AcyclicSCC bind) = liftIO (putStr "acyclic bind: ") >> printBind (fst bind) >> liftIO (putStrLn "") 
+printBinds (CyclicSCC binds) = liftIO (putStr "cyclic binds: ") >> mapM_ (printBind . fst) binds >> liftIO (putStrLn "") 
 
 
--- printBind (L _ FunBind{fun_id = L _ name}) = 
---   liftIO $ putStr $ (getOccString name ++ " ")
--- printBind (L _ (AbsBinds {abs_exports = exp})) = 
---   mapM_ (\ e -> liftIO $ putStr $ ((getOccString $ abe_poly e)  ++ " ")) exp
--- printBind (L _ (VarBind {var_id = name})) =   liftIO $ putStr $ (getOccString name ++ " ")
--- printBind _ = return ()
+printBind (L _ FunBind{fun_id = L _ name}) = 
+  liftIO $ putStr $ (getOccString name ++ " ")
+printBind (L _ (AbsBinds {abs_exports = exp})) = 
+  mapM_ (\ e -> liftIO $ putStr $ ((getOccString $ abe_poly e)  ++ " ")) exp
+printBind (L _ (VarBind {var_id = name})) =   liftIO $ putStr $ (getOccString name ++ " ")
+printBind _ = return ()
 
 -- | Computes the variables that are bound by a given piece of syntax.
 
@@ -186,7 +186,10 @@ instance HasFV (HsLocalBindsLR GhcTc GhcTc) where
 
 instance HasFV (HsValBindsLR GhcTc GhcTc) where
   getFV (ValBinds _ b _) = getFV b
-  getFV _ = Set.empty
+  getFV (XValBindsLR b) = getFV b
+
+instance HasFV (NHsValBindsLR GhcTc) where
+  getFV (NValBinds bs _) = foldMap (getFV . snd) bs
 
 instance HasFV (HsBindLR GhcTc GhcTc) where
   getFV FunBind {fun_matches = ms} = getFV ms

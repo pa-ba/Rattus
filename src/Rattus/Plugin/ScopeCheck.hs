@@ -42,6 +42,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import Data.Map (Map)
 import System.Exit
+import Data.Either
 import Data.Maybe
 
 import Control.Monad
@@ -54,12 +55,12 @@ data Ctxt = Ctxt
     current :: LCtxt,
     -- | Variables that are in the typing context, but to the left of a
     -- tick
-    earlier :: Maybe LCtxt,
+    earlier :: Either NoTickReason LCtxt,
     -- | Variables that have fallen out of scope. The map contains the
     -- reason why they have fallen out of scope.
     hidden :: Hidden,
-    -- | Same as 'hidden' but for recursive variables.
-    hiddenRec :: Hidden,
+    -- -- | Same as 'hidden' but for recursive variables.
+    -- hiddenRec :: Hidden,
     -- | The current location information.
     srcLoc :: SrcSpan,
     -- | If we are in the body of a recursively defined function, this
@@ -89,9 +90,8 @@ data Ctxt = Ctxt
 emptyCtxt :: Maybe (Set Var,SrcSpan) -> Ctxt
 emptyCtxt mvar =
   Ctxt { current =  Set.empty,
-         earlier = Nothing,
+         earlier = Left NoDelay,
          hidden = Map.empty,
-         hiddenRec = Map.empty,
          srcLoc = UnhelpfulSpan "<no location info>",
          recDef = mvar,
          primAlias = Map.empty,
@@ -113,7 +113,10 @@ type RecDef = (Set Var, SrcSpan)
 data StableReason = StableRec SrcSpan | StableBox | StableArr deriving Show
 
 -- | Indicates, why a variable has fallen out of scope.
-data HiddenReason = Stabilize StableReason | FunDef | AdvApp deriving Show
+data HiddenReason = Stabilize StableReason | FunDef | DelayApp | AdvApp deriving Show
+
+-- | Indicates, why there is no tick
+data NoTickReason = NoDelay | TickHidden HiddenReason deriving Show
 
 -- | Hidden context, containing variables that have fallen out of
 -- context along with the reason why they have.
@@ -138,7 +141,7 @@ class Scope a where
 -- variables.
 class ScopeBind a where
   -- | 'checkBind' checks whether its argument is scope-correct and in
--- addition returns the the set of variables bound by it.
+  -- addition returns the the set of variables bound by it.
   checkBind :: GetCtxt => a -> TcM (Bool,Set Var)
 
 
@@ -158,7 +161,8 @@ modifyCtxt f a =
 -- found, the current execution is halted with 'exitFailure'.
 checkAll :: TcGblEnv -> TcM ()
 checkAll env = do
-  let bindDep = filter (filterBinds (tcg_mod env) (tcg_ann_env env)) (dependency (tcg_binds env))
+  let dep = dependency (tcg_binds env)
+  let bindDep = filter (filterBinds (tcg_mod env) (tcg_ann_env env)) dep
   res <- mapM checkSCC bindDep
   if and res then return () else liftIO exitFailure
 
@@ -195,7 +199,7 @@ instance Scope a => Scope [a] where
 
 instance Scope a => Scope (Match GhcTc a) where
   check Match{m_pats=ps,m_grhss=rhs} = mod `modifyCtxt` check rhs
-    where mod c = addVars (getBV ps) (if null ps then c else stabilizeLater c)
+    where mod c = addVars (getBV ps) (if null ps then c else stabilizeLater FunDef c)
   check XMatch{} = return True
 
 instance Scope a => Scope (MatchGroup GhcTc a) where
@@ -251,13 +255,13 @@ checkRecursiveBinds bs vs = do
       _ -> return (res, vs)
     where check' b@(L l _) = fc l `modifyCtxt` check b
           fc l c = let
-            ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
-            recHid = maybe ctxHid (Set.union ctxHid . fst) (recDef c)
+            ctxHid = either (const $ current c) (Set.union (current c)) (earlier c)
             in c {current = Set.empty,
-                  earlier = Nothing,
+                  earlier = Left (TickHidden $ Stabilize $ StableRec l),
                   hidden =  hidden c `Map.union`
-                            (Map.fromSet (const (Stabilize (StableRec l))) recHid),
-                  recDef = Just (vs,l),
+                            (Map.fromSet (const (Stabilize (StableRec l))) ctxHid),
+                  recDef = maybe (Just (vs,l)) (\(vs',_) -> Just (Set.union vs' vs,l)) (recDef c),
+                   -- TODO fix location info of recDef (needs one location for each var)
                   stabilized = Just (StableRec l)}
 
           recReason :: StableReason -> SDoc
@@ -324,6 +328,14 @@ arrReason StableArr = "Nested use of arr"
 arrReason StableBox = "The use of arr in the scope of box"
 arrReason (StableRec _) = "The use of arr in a recursive definition"
 
+tickHidden :: HiddenReason -> SDoc
+tickHidden FunDef = "a function definition"
+tickHidden DelayApp = "a nested application of delay"
+tickHidden AdvApp = "an application of adv"
+tickHidden (Stabilize StableBox) = "an application of box"
+tickHidden (Stabilize StableArr) = "an application of arr"
+tickHidden (Stabilize (StableRec src)) = "a nested recursive definition (at " <> ppr src <> ")"
+
 instance Scope (HsExpr GhcTc) where
   check (HsVar _ (L _ v))
     | Just p <- isPrim v =
@@ -333,8 +345,9 @@ instance Scope (HsExpr GhcTc) where
     | otherwise = case getScope v of
              Hidden reason -> printMessageCheck SevError reason
              Visible -> return True
-             ImplUnboxed -> printMessageCheck SevWarning 
-                (ppr v <> text " is an external temporal function used under delay, which may cause time leaks")
+             ImplUnboxed -> return True
+               -- printMessageCheck SevWarning
+               --  (ppr v <> text " is an external temporal function used under delay, which may cause time leaks.")
   check (HsApp _ e1 e2) =
     case isPrimExpr e1 of
     Just (p,_) -> case p of
@@ -353,16 +366,16 @@ instance Scope (HsExpr GhcTc) where
           _ -> return ch
 
       Unbox -> check e2
-      Delay -> case earlier ?ctxt of
-        Just _ -> printMessageCheck SevError (text "cannot delay more than once")
-        Nothing -> (\c -> c{current = Set.empty, earlier = Just (current ?ctxt)})
+      Delay ->  ((\c -> c{current = Set.empty, earlier = Right (current ?ctxt)}) . stabilizeLater DelayApp)
                   `modifyCtxt` check  e2
       Adv -> case earlier ?ctxt of
-        Just er -> mod `modifyCtxt` check e2
-          where mod c =  c{earlier = Nothing, current = er,
+        Right er -> mod `modifyCtxt` check e2
+          where mod c =  c{earlier = Left $ TickHidden AdvApp, current = er,
                            hidden = hidden ?ctxt `Map.union`
                             Map.fromSet (const AdvApp) (current ?ctxt)}
-        Nothing -> printMessageCheck SevError (text "can only advance under delay")
+        Left NoDelay -> printMessageCheck SevError ("adv may only be used in the scope of a delay.")
+        Left (TickHidden hr) -> printMessageCheck SevError ("adv may only be used in the scope of a delay. "
+                            <> " There is a delay, but its scope is interrupted by " <> tickHidden hr <> ".")
     _ -> liftM2 (&&) (check e1)  (check e2)
   check HsUnboundVar{}  = return True
   check HsConLikeOut{} = return True
@@ -370,6 +383,7 @@ instance Scope (HsExpr GhcTc) where
   check HsOverLabel{} = return True
   check HsIPVar{} = notSupported "implicit parameters"
   check HsOverLit{} = return True
+
   
 #if __GLASGOW_HASKELL__ >= 808
   check (HsAppType _ e _)
@@ -385,8 +399,8 @@ instance Scope (HsExpr GhcTc) where
   check (HsWrap _ _ e) = check e
   check HsLit{} = return True
   check (OpApp _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
-  check (HsLam _ mg) = stabilizeLater `modifyCtxt` check mg
-  check (HsLamCase _ mg) = stabilizeLater `modifyCtxt` check mg
+  check (HsLam _ mg) = stabilizeLater FunDef `modifyCtxt` check mg
+  check (HsLamCase _ mg) = stabilizeLater FunDef `modifyCtxt` check mg
   check (HsIf _ _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
   check (HsCase _ e1 e2) = (&&) <$> check e1 <*> check e2
   check (SectionL _ e1 e2) = (&&) <$> check e1 <*> check e2
@@ -457,16 +471,13 @@ instance Scope (HsCmd GhcTc) where
 -- | This is used when checking function definitions. If the context
 -- is not ticked, it stays the same. Otherwise, it is stabilized
 -- (similar to 'box').
-stabilizeLater :: Ctxt -> Ctxt
-stabilizeLater c =
-  if isJust (earlier c)
-  then c {earlier = Nothing,
-          hidden = hid,
-          hiddenRec = maybe (hiddenRec c) (Map.union (hidden c) . Map.fromSet (const FunDef))
-                      (fst <$> recDef c),
-          recDef = Nothing}
-  else c
-  where hid = maybe (hidden c) (Map.union (hidden c) . Map.fromSet (const FunDef)) (earlier c)
+stabilizeLater :: HiddenReason -> Ctxt -> Ctxt
+stabilizeLater reason c =
+  case earlier c of
+    Left _ -> c
+    Right earl ->
+      c {earlier = Left $ TickHidden reason,
+         hidden = Map.union (hidden c) $ Map.fromSet (const reason) earl}
 
 
 instance Scope (ArithSeqInfo GhcTc) where
@@ -541,12 +552,10 @@ checkSCC (CyclicSCC bs) = (fmap and (mapM check' bs'))
 stabilize :: StableReason -> Ctxt -> Ctxt
 stabilize sr c = c
   {current = Set.empty,
-   earlier = Nothing,
+   earlier = Left $ TickHidden hr,
    hidden = hidden c `Map.union` Map.fromSet (const hr) ctxHid,
-   hiddenRec = hiddenRec c `Map.union` maybe Map.empty (Map.fromSet (const hr) . fst) (recDef c),
-   recDef = Nothing,
    stabilized = Just sr}
-  where ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
+  where ctxHid = either (const $ current c) (Set.union (current c)) (earlier c)
         hr = Stabilize sr
 
 data VarScope = Hidden SDoc | Visible | ImplUnboxed
@@ -559,22 +568,15 @@ getScope v =
     Ctxt{recDef = Just (vs,_), earlier = e}
       | v `Set.member` vs ->
         case e of
-          Just _ -> Visible
-          Nothing -> Hidden ("(Mutually) recursive call to " <> ppr v <> " must occur under delay")
-    _ ->
-      case Map.lookup v (hiddenRec ?ctxt) of
-        Just (Stabilize (StableRec rv)) -> Hidden ("Recursive call to" <> ppr v <>
-                            " is not allowed as it occurs in a local recursive definiton (at " <> ppr rv <> ")")
-        Just (Stabilize StableBox) -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs under a box")
-        Just (Stabilize StableArr) -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs inside an arrow notation")
-        Just FunDef -> Hidden ("Recursive call to " <> ppr v <> " is not allowed here, since it occurs in a function that is defined under delay")
-        Just AdvApp -> Hidden ("This should not happen: recursive call to " <> ppr v <> " is out of scope due to adv")
-        Nothing -> 
-          case Map.lookup v (hidden ?ctxt) of
+          Right _ -> Visible
+          Left NoDelay -> Hidden ("The (mutually) recursive call to " <> ppr v <> " must occur in the scope of a delay")
+          Left (TickHidden hr) -> Hidden ("The (mutually) recursive call to " <> ppr v <> " must occur in the scope of a delay. "
+                            <> "There is a delay, but its scope is interrupted by " <> tickHidden hr <> ".")
+    _ ->  case Map.lookup v (hidden ?ctxt) of
             Just (Stabilize (StableRec rv)) ->
               if (isStable (stableTypes ?ctxt) (varType v)) then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
-                       "It appears in a local recursive definiton (at " <> ppr rv <> ")"
+                       "It appears in a local recursive definition (at " <> ppr rv <> ")"
                        $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
             Just (Stabilize StableBox) ->
               if (isStable (stableTypes ?ctxt) (varType v)) then Visible
@@ -583,17 +585,18 @@ getScope v =
             Just (Stabilize StableArr) ->
               if (isStable (stableTypes ?ctxt) (varType v)) then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
-                       "It occurs under inside an arrow notation and is of type " <> ppr (varType v) <> ", which is not stable.")
+                       "It occurs inside an arrow notation and is of type " <> ppr (varType v) <> ", which is not stable.")
             Just AdvApp -> Hidden ("Variable " <> ppr v <> " is no longer in scope: It occurs under adv.")
+            Just DelayApp -> Hidden ("Variable " <> ppr v <> " is no longer in scope due to repeated application of delay")
             Just FunDef -> if (isStable (stableTypes ?ctxt) (varType v)) then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope: It occurs in a function that is defined under a delay, is a of a non-stable type " <> ppr (varType v) <> ", and is bound outside delay")
             Nothing
-              | maybe False (Set.member v) (earlier ?ctxt) ->
+              | either (const False) (Set.member v) (earlier ?ctxt) ->
                 if isStable (stableTypes ?ctxt) (varType v) then Visible
                 else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
                          "It occurs under delay" $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
               | Set.member v (current ?ctxt) -> Visible
-              | isTemporal (varType v) && isJust (earlier ?ctxt) && userFunction v
+              | isTemporal (varType v) && isRight (earlier ?ctxt) && userFunction v
                 -> ImplUnboxed
               | otherwise -> Visible
 

@@ -146,5 +146,13 @@ alt :: Int -> Int -> Str Int
 alt n m = n ::: delay (alt m n)
 
 
+myMap :: Str Int -> Str Int
+myMap (x ::: xs) = (x + 1) ::: delay (fst' (myMap (adv xs):*nats))
+
+nats :: Str Int
+nats = 0 ::: delay (myMap nats)
+
+
+
 {-# ANN main NotRattus #-}
 main = putStrLn "This file should just type check"
