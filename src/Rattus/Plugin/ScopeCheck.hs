@@ -19,6 +19,8 @@ import Rattus.Plugin.Utils
 import Rattus.Plugin.Dependency
 import Rattus.Plugin.Annotation
 
+import Data.IORef
+
 import Prelude hiding ((<>))
 import GhcPlugins
 import TcRnTypes
@@ -41,15 +43,20 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Set (Set)
 import Data.Map (Map)
+import Data.List
 import System.Exit
 import Data.Either
 import Data.Maybe
 
 import Control.Monad
 
+type ErrorMsg = (Severity,SrcSpan,SDoc)
+type ErrorMsgsRef = IORef [ErrorMsg]
+
 -- | The current context for scope checking
 data Ctxt = Ctxt
   {
+    errorMsgs :: ErrorMsgsRef,
     -- | Variables that are in scope now (i.e. occurring in the typing
     -- context but not to the left of a tick)
     current :: LCtxt,
@@ -80,16 +87,17 @@ data Ctxt = Ctxt
     -- (stripped of all non-stable stuff). It is set when typechecking
     -- 'box', 'arr' and guarded recursion.
     stabilized :: Maybe StableReason}
-  deriving Show
+
 
 
 -- | The starting context for checking a top-level definition. For
 -- non-recursive definitions, the argument is @Nothing@. Otherwise, it
 -- contains the recursively defined variables along with the location
 -- of the recursive definition.
-emptyCtxt :: Maybe (Set Var,SrcSpan) -> Ctxt
-emptyCtxt mvar =
-  Ctxt { current =  Set.empty,
+emptyCtxt :: ErrorMsgsRef -> Maybe (Set Var,SrcSpan) -> Ctxt
+emptyCtxt em mvar =
+  Ctxt { errorMsgs = em,
+         current =  Set.empty,
          earlier = Left NoDelay,
          hidden = Map.empty,
          srcLoc = UnhelpfulSpan "<no location info>",
@@ -163,8 +171,17 @@ checkAll :: TcGblEnv -> TcM ()
 checkAll env = do
   let dep = dependency (tcg_binds env)
   let bindDep = filter (filterBinds (tcg_mod env) (tcg_ann_env env)) dep
-  res <- mapM checkSCC bindDep
+  err <- liftIO (newIORef [])
+  res <- mapM (checkSCC err) bindDep
+  msgs <- liftIO (readIORef err)
+  printAccErrMsgs msgs
   if and res then return () else liftIO exitFailure
+
+
+printAccErrMsgs :: [ErrorMsg] -> TcM ()
+printAccErrMsgs msgs = mapM_ printMsg (sortOn (\(_,l,_)->l) msgs)
+  where printMsg (sev,loc,doc) = printMessage sev loc doc
+
 
 -- | This function checks whether a given top-level definition (either
 -- a single non-recursive definition or a group of mutual recursive
@@ -537,13 +554,13 @@ extractStableConstr  = mapMaybe isStableConstr . fst . splitFunTys . snd . split
 -- non-recursive definition or a group of (mutual) recursive
 -- definitions.
 
-checkSCC :: SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> TcM Bool
-checkSCC (AcyclicSCC (b,_)) = setCtxt (emptyCtxt Nothing) (check b)
+checkSCC :: ErrorMsgsRef -> SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> TcM Bool
+checkSCC errm (AcyclicSCC (b,_)) = setCtxt (emptyCtxt errm Nothing) (check b)
 
-checkSCC (CyclicSCC bs) = (fmap and (mapM check' bs'))
+checkSCC errm (CyclicSCC bs) = (fmap and (mapM check' bs'))
   where bs' = map fst bs
         vs = foldMap snd bs
-        check' b@(L l _) = setCtxt (emptyCtxt (Just (vs,l))) (check b)
+        check' b@(L l _) = setCtxt (emptyCtxt errm (Just (vs,l))) (check b)
 
 -- | Stabilizes the given context, i.e. remove all non-stable types
 -- and any tick. This is performed on checking 'box', 'arr' and
@@ -660,7 +677,8 @@ addVars vs c = c{current = vs `Set.union` current c }
 
 -- | Print a message with the current location.
 printMessage' :: GetCtxt => Severity -> SDoc ->  TcM ()
-printMessage' sev doc = printMessage sev (srcLoc ?ctxt) doc
+printMessage' sev doc =
+  liftIO (modifyIORef (errorMsgs ?ctxt) ((sev ,srcLoc ?ctxt, doc) :))
 
 -- | Print a message with the current location. Returns 'False', if
 -- the severity is 'SevError' and otherwise 'True.

@@ -11,7 +11,7 @@ import Prelude
 -- Uncomment the annotation below to check that the definitions in
 -- this module don't type check
 
--- {-# ANN module Rattus #-}
+{-# ANN module Rattus #-}
 
 
 
@@ -43,6 +43,9 @@ advDelay' y = let x = adv y in x
 
 dblAdv :: O (O a) -> O a
 dblAdv y = delay (adv (adv y))
+
+dblAdv' :: O (O a) -> O (O a)
+dblAdv' y = delay (delay (adv (adv y)))
 
 lambdaUnderDelay :: O (O Int -> Int -> Int)
 lambdaUnderDelay = delay (\x _ -> adv x)
