@@ -1,3 +1,23 @@
+0.4
+---
+
+More general typing rules for delay, functions, and guarded recursion:
+
+- delay and function definitions may now occur under a delay.
+- Guarded recursive calls may occur at any time in the future -- not
+  only exactly one time step into the future.
+- As before, adv and recursive calls may only occur directly in the
+  scope of delay. The scope of a delay is interrupted by adv, box,
+  guarded recursive definitions, and function definitions.
+
+Changes in the library:
+
+- Rename applicative-style operators to avoid clash with Haskell's <*>
+  operator.
+- Rename types: Event -> Future; Events -> Event
+
+
+
 0.3.1
 -----
 
