@@ -11,7 +11,7 @@ import Prelude
 -- Uncomment the annotation below to check that the definitions in
 -- this module don't type check
 
-{-# ANN module Rattus #-}
+-- {-# ANN module Rattus #-}
 
 
 
