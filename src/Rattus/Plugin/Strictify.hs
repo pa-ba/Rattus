@@ -53,34 +53,3 @@ strictifyExpr ss (App e1 e2)
       e2' <- strictifyExpr ss e2
       return (App e1' e2')
 strictifyExpr _ss e = return e
-
-
-isDelayApp (App e _) = isDelayApp e
-isDelayApp (Cast e _) = isDelayApp e
-isDelayApp (Tick _ e) = isDelayApp e
-isDelayApp (Var v) = isDelayVar v
-isDelayApp _ = False
-
-
-
-
-isDelayVar :: Var -> Bool
-isDelayVar v = maybe False id $ do
-  let name = varName v
-  mod <- nameModule_maybe name
-  let occ = getOccString name
-  return ((occ == "Delay" || occ == "delay") || (occ == "Box" || occ == "delay")
-          && ((moduleNameString (moduleName mod) == "Rattus.Internal") ||
-          moduleNameString (moduleName mod) == "Rattus.Primitives"))
-
-isCase Case{} = True
-isCase (Tick _ e) = isCase e
-isCase (Cast e _) = isCase e
-isCase Lam {} = True
-isCase e = isType e
-
-isTophandler (App e1 e2) = isTophandler e1 || isTophandler e2
-isTophandler (Cast e _) = isTophandler e
-isTophandler (Tick _ e) = isTophandler e
-isTophandler e = showSDocUnsafe (ppr e) == "GHC.TopHandler.runMainIO"
-
