@@ -21,14 +21,29 @@ dblDelay :: O (O Int)
 dblDelay = delay (delay 1)
 
 
+dblAdv :: O (O a) -> O (O a)
+dblAdv y = delay (delay (adv (adv y)))
+
+
 lambdaUnderDelay :: O (Int -> Int)
 lambdaUnderDelay = delay (\x -> x)
 
-advUnderLambda :: O (O Int -> O Int)
-advUnderLambda = delay (\x -> delay (adv x))
+delayAdvUnderLambda :: O (O Int -> O Int)
+delayAdvUnderLambda = delay (\x -> delay (adv x))
+
+sneakyLambdaUnderDelay' :: O (a -> Bool)
+sneakyLambdaUnderDelay' = delay (let f _ =  adv (delay True) in f)
+
+advUnderLambda :: O Int -> O (a -> Int)
+advUnderLambda y = delay (\x -> adv y)
 
 sneakyLambdaUnderDelay :: O (Int -> Int)
 sneakyLambdaUnderDelay = delay (let f x = x in f)
+
+-- This function is leaky unless the single tick transformation is
+-- performed
+leaky :: (() -> Bool) -> Str Bool
+leaky p = p () ::: delay (leaky (\ _ -> hd (leaky (\ _ -> True))))
 
 zeros :: Box (Str Int)
 zeros = box (0 ::: delay (unbox zeros))
@@ -46,7 +61,6 @@ nestedRec = run 10
   where run :: Int -> Str Int
         run 0 = 0 ::: delay (nestedRec)
         run n = n ::: delay (run (n-1))
-
 
 {-# ANN main NotRattus #-}
 main = putStrLn "This file should type check"

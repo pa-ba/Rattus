@@ -44,17 +44,11 @@ advDelay' y = let x = adv y in x
 dblAdv :: O (O a) -> O a
 dblAdv y = delay (adv (adv y))
 
-dblAdv' :: O (O a) -> O (O a)
-dblAdv' y = delay (delay (adv (adv y)))
+advScope :: O (O Int -> Int)
+advScope = delay (\x -> adv x)
 
-lambdaUnderDelay :: O (O Int -> Int -> Int)
-lambdaUnderDelay = delay (\x _ -> adv x)
-
-sneakyLambdaUnderDelay :: O (Int -> Int)
-sneakyLambdaUnderDelay = delay (let f _ =  adv (delay 1) in f)
-
-leaky :: (() -> Bool) -> Str Bool
-leaky p = p () ::: delay (leaky (\ _ -> hd (leaky (\ _ -> True))))
+advScope' :: O (Int -> Int)
+advScope' = delay (let f x =  adv (delay x) in f)
 
 grec :: a
 grec = grec

@@ -44,6 +44,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import Data.Map (Map)
 import Data.List
+import Data.List.NonEmpty (NonEmpty(..),(<|),nonEmpty)
 import System.Exit
 import Data.Either
 import Data.Maybe
@@ -62,7 +63,7 @@ data Ctxt = Ctxt
     current :: LCtxt,
     -- | Variables that are in the typing context, but to the left of a
     -- tick
-    earlier :: Either NoTickReason LCtxt,
+    earlier :: Either NoTickReason (NonEmpty LCtxt),
     -- | Variables that have fallen out of scope. The map contains the
     -- reason why they have fallen out of scope.
     hidden :: Hidden,
@@ -215,8 +216,7 @@ instance Scope a => Scope [a] where
 
 
 instance Scope a => Scope (Match GhcTc a) where
-  check Match{m_pats=ps,m_grhss=rhs} = mod `modifyCtxt` check rhs
-    where mod c = addVars (getBV ps) (if null ps then c else stabilizeLater FunDef c)
+  check Match{m_pats=ps,m_grhss=rhs} = addVars (getBV ps) `modifyCtxt` check rhs
   check XMatch{} = return True
 
 instance Scope a => Scope (MatchGroup GhcTc a) where
@@ -272,7 +272,7 @@ checkRecursiveBinds bs vs = do
       _ -> return (res, vs)
     where check' b@(L l _) = fc l `modifyCtxt` check b
           fc l c = let
-            ctxHid = either (const $ current c) (Set.union (current c)) (earlier c)
+            ctxHid = either (const $ current c) (Set.union (current c) . Set.unions) (earlier c)
             in c {current = Set.empty,
                   earlier = Left (TickHidden $ Stabilize $ StableRec l),
                   hidden =  hidden c `Map.union`
@@ -383,11 +383,17 @@ instance Scope (HsExpr GhcTc) where
           _ -> return ch
 
       Unbox -> check e2
-      Delay ->  ((\c -> c{current = Set.empty, earlier = Right (current ?ctxt)}) . stabilizeLater DelayApp)
+      Delay ->  ((\c -> c{current = Set.empty,
+                          earlier = case earlier c of
+                                      Left _ -> Right (current c :| [])
+                                      Right cs -> Right (current c <| cs)}))
                   `modifyCtxt` check  e2
       Adv -> case earlier ?ctxt of
-        Right er -> mod `modifyCtxt` check e2
-          where mod c =  c{earlier = Left $ TickHidden AdvApp, current = er,
+        Right (er :| ers) -> mod `modifyCtxt` check e2
+          where mod c =  c{earlier = case nonEmpty ers of
+                                       Nothing -> Left $ TickHidden AdvApp
+                                       Just ers' -> Right ers',
+                           current = er,
                            hidden = hidden ?ctxt `Map.union`
                             Map.fromSet (const AdvApp) (current ?ctxt)}
         Left NoDelay -> printMessageCheck SevError ("adv may only be used in the scope of a delay.")
@@ -416,8 +422,8 @@ instance Scope (HsExpr GhcTc) where
   check (HsWrap _ _ e) = check e
   check HsLit{} = return True
   check (OpApp _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
-  check (HsLam _ mg) = stabilizeLater FunDef `modifyCtxt` check mg
-  check (HsLamCase _ mg) = stabilizeLater FunDef `modifyCtxt` check mg
+  check (HsLam _ mg) = check mg
+  check (HsLamCase _ mg) = check mg
   check (HsIf _ _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
   check (HsCase _ e1 e2) = (&&) <$> check e1 <*> check e2
   check (SectionL _ e1 e2) = (&&) <$> check e1 <*> check e2
@@ -483,18 +489,6 @@ instance Scope (HsCmd GhcTc) where
     return (r && l)
   check (HsCmdWrap _ _ e) = check e
   check XCmd{} = return True
-
-
--- | This is used when checking function definitions. If the context
--- is not ticked, it stays the same. Otherwise, it is stabilized
--- (similar to 'box').
-stabilizeLater :: HiddenReason -> Ctxt -> Ctxt
-stabilizeLater reason c =
-  case earlier c of
-    Left _ -> c
-    Right earl ->
-      c {earlier = Left $ TickHidden reason,
-         hidden = Map.union (hidden c) $ Map.fromSet (const reason) earl}
 
 
 instance Scope (ArithSeqInfo GhcTc) where
@@ -572,7 +566,7 @@ stabilize sr c = c
    earlier = Left $ TickHidden hr,
    hidden = hidden c `Map.union` Map.fromSet (const hr) ctxHid,
    stabilized = Just sr}
-  where ctxHid = either (const $ current c) (Set.union (current c)) (earlier c)
+  where ctxHid = either (const $ current c) (foldl' Set.union (current c)) (earlier c)
         hr = Stabilize sr
 
 data VarScope = Hidden SDoc | Visible | ImplUnboxed
@@ -608,7 +602,7 @@ getScope v =
             Just FunDef -> if (isStable (stableTypes ?ctxt) (varType v)) then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope: It occurs in a function that is defined under a delay, is a of a non-stable type " <> ppr (varType v) <> ", and is bound outside delay")
             Nothing
-              | either (const False) (Set.member v) (earlier ?ctxt) ->
+              | either (const False) (any (Set.member v)) (earlier ?ctxt) ->
                 if isStable (stableTypes ?ctxt) (varType v) then Visible
                 else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
                          "It occurs under delay" $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")

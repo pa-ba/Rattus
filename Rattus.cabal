@@ -148,6 +148,7 @@ library
                        Rattus.Primitives
                        
   other-modules:       Rattus.Plugin.ScopeCheck
+                       Rattus.Plugin.SingleTick
                        Rattus.Plugin.Annotation
                        Rattus.Plugin.Strictify
                        Rattus.Plugin.Utils
