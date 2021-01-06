@@ -71,7 +71,11 @@ strictify guts b@(Rec bs) = do
 strictify guts b@(NonRec v e) = do
     tr <- shouldTransform guts v
     if tr then do
+      -- liftIO $ putStrLn "-------- old --------"
+      -- liftIO $ putStrLn (showSDocUnsafe (ppr e))
       e' <- toSingleTick e
+      -- liftIO $ putStrLn "-------- new --------"
+      -- liftIO $ putStrLn (showSDocUnsafe (ppr e'))
       lazy <- allowLazyData guts v
       e'' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy)) e'
       return (NonRec v e'')
