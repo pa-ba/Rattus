@@ -8,6 +8,7 @@ module Rattus.Plugin (plugin, Rattus(..)) where
 import Rattus.Plugin.StableSolver
 import Rattus.Plugin.ScopeCheck
 import Rattus.Plugin.Strictify
+import Rattus.Plugin.SingleTick
 import Rattus.Plugin.Utils
 import Rattus.Plugin.Annotation
 
@@ -44,6 +45,13 @@ install :: [CommandLineOption] -> [CoreToDo] -> CoreM [CoreToDo]
 install _ todo = return (strPass : todo)
     where strPass = CoreDoPluginPass "Rattus strictify" strictifyProgram
 
+-- | Apply the following operations to all Rattus definitions in the
+-- program:
+--
+-- * Transform into single tick form (see SingleTick module)
+-- * Check whether lazy data types are used (see Strictify module)
+-- * Transform into call-by-value form (see Strictify module)
+
 strictifyProgram :: ModGuts -> CoreM ModGuts
 strictifyProgram guts = do
   newBinds <- mapM (strictify guts) (mg_binds guts)
@@ -55,16 +63,18 @@ strictify guts b@(Rec bs) = do
   if tr then do
     let vs = map fst bs
     es' <- mapM (\ (v,e) -> do
+                    e' <- toSingleTick e
                     lazy <- allowLazyData guts v
-                    strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy))e) bs
+                    strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy))e') bs
     return (Rec (zip vs es'))
   else return b
 strictify guts b@(NonRec v e) = do
     tr <- shouldTransform guts v
     if tr then do
+      e' <- toSingleTick e
       lazy <- allowLazyData guts v
-      e' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy)) e
-      return (NonRec v e')
+      e'' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy)) e'
+      return (NonRec v e'')
     else return b
 
 getModuleAnnotations :: Data a => ModGuts -> [a]

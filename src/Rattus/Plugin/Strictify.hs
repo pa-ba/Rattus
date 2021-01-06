@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Rattus.Plugin.Strictify where
+module Rattus.Plugin.Strictify
+  (strictifyExpr, SCxt (..)) where
 import Prelude hiding ((<>))
 import Rattus.Plugin.Utils
 import GhcPlugins
