@@ -149,6 +149,7 @@ library
                        
   other-modules:       Rattus.Plugin.ScopeCheck
                        Rattus.Plugin.SingleTick
+                       Rattus.Plugin.CheckSingleTick
                        Rattus.Plugin.Annotation
                        Rattus.Plugin.Strictify
                        Rattus.Plugin.Utils
@@ -157,7 +158,7 @@ library
   build-depends:       base >=4.12 && <5, containers, ghc >= 8.6 && < 8.11, ghc-prim, simple-affine-space, transformers
   hs-source-dirs:      src
   default-language:    Haskell2010
-  ghc-options:         -W
+  ghc-options:         -W -g2
   
 Test-Suite memory-leak
   type:                exitcode-stdio-1.0
@@ -165,7 +166,7 @@ Test-Suite memory-leak
   hs-source-dirs:      test
   default-language:    Haskell2010
   build-depends:       Rattus, base
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
 
 
 Test-Suite time-leak
@@ -174,7 +175,7 @@ Test-Suite time-leak
   hs-source-dirs:      test
   default-language:    Haskell2010
   build-depends:       Rattus, base
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
   
 Test-Suite ill-typed
   type:                exitcode-stdio-1.0
@@ -182,14 +183,14 @@ Test-Suite ill-typed
   default-language:    Haskell2010
   build-depends:       Rattus, base
   ghc-options:         
-                       -fplugin=Rattus.Plugin -rtsopts
+                       -fplugin=Rattus.Plugin -rtsopts -g2
 
 Test-Suite newly-typed
   type:                exitcode-stdio-1.0
   main-is:             test/NewlyTyped.hs
   default-language:    Haskell2010
   build-depends:       Rattus, base
-  ghc-options:         -fplugin=Rattus.Plugin
+  ghc-options:         -fplugin=Rattus.Plugin -g2
 
 
 Test-Suite well-typed
@@ -198,7 +199,7 @@ Test-Suite well-typed
   hs-source-dirs:      test
   default-language:    Haskell2010
   build-depends:       Rattus, base, containers
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
 
 
 Test-Suite rewrite
@@ -207,5 +208,5 @@ Test-Suite rewrite
   hs-source-dirs:      test
   default-language:    Haskell2010
   build-depends:       Rattus, base, containers
-  ghc-options:         -fplugin=Rattus.Plugin -rtsopts
+  ghc-options:         -fplugin=Rattus.Plugin -rtsopts -g2
 

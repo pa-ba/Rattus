@@ -165,7 +165,7 @@ extractAdv' e@Coercion{} = return e
 
 
 isDelayApp :: CoreExpr -> Bool
-isDelayApp = isPrimApp (\occ -> occ == "Delay" || occ == "delay")
+isDelayApp = isPrimApp (\occ -> occ == "delay")
 
 isBoxApp :: CoreExpr -> Bool
 isBoxApp = isPrimApp (\occ -> occ == "Box" || occ == "box")

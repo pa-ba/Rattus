@@ -9,6 +9,7 @@ import Rattus.Plugin.StableSolver
 import Rattus.Plugin.ScopeCheck
 import Rattus.Plugin.Strictify
 import Rattus.Plugin.SingleTick
+import Rattus.Plugin.CheckSingleTick
 import Rattus.Plugin.Utils
 import Rattus.Plugin.Annotation
 
@@ -20,7 +21,7 @@ import TcRnTypes
 import Control.Monad
 import Data.Maybe
 import Data.Data hiding (tyConName)
-
+import qualified Data.Set as Set
 
 
 
@@ -65,7 +66,14 @@ strictify guts b@(Rec bs) = do
     es' <- mapM (\ (v,e) -> do
                     e' <- toSingleTick e
                     lazy <- allowLazyData guts v
-                    strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy))e') bs
+                    e'' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy))e'
+                    b <- checkExpr (emptyCtx (Set.fromList vs)) e''
+                    when (not b) $ do
+                            liftIO $ putStrLn "-------- old --------"
+                            liftIO $ putStrLn (showSDocUnsafe (ppr e))
+                            liftIO $ putStrLn "-------- new --------"
+                            liftIO $ putStrLn (showSDocUnsafe (ppr e''))
+                    return e'') bs
     return (Rec (zip vs es'))
   else return b
 strictify guts b@(NonRec v e) = do
@@ -78,6 +86,12 @@ strictify guts b@(NonRec v e) = do
       -- liftIO $ putStrLn (showSDocUnsafe (ppr e'))
       lazy <- allowLazyData guts v
       e'' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy)) e'
+      b <- checkExpr (emptyCtx Set.empty) e''
+      when (not b) $ do
+        liftIO $ putStrLn "-------- old --------"
+        liftIO $ putStrLn (showSDocUnsafe (ppr e))
+        liftIO $ putStrLn "-------- new --------"
+        liftIO $ putStrLn (showSDocUnsafe (ppr e''))
       return (NonRec v e'')
     else return b
 

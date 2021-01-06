@@ -82,9 +82,9 @@ bar2 f  (x ::: xs) = unbox f x ::: (delay (bar1 f) <#> xs)
 
 
 -- mutual recursive definition
-foo1,foo2 :: Box (a -> b) -> Str a -> Str b
-(foo1,foo2) = (\ f (x ::: xs) -> unbox f x ::: (delay (foo2 f) <#> xs),
-               \ f (x ::: xs) -> unbox f x ::: (delay (foo1 f) <#> xs))
+-- foo1,foo2 :: Box (a -> b) -> Str a -> Str b
+-- (foo1,foo2) = (\ f (x ::: xs) -> unbox f x ::: (delay (foo2 f) <#> xs),
+--                \ f (x ::: xs) -> unbox f x ::: (delay (foo1 f) <#> xs))
 
 
 applyDelay :: O (O (a -> b)) -> O (O a) -> O (O b)
