@@ -39,12 +39,15 @@ plugin = defaultPlugin {
   }
 
 
+data Options = Options {debugMode :: Bool}
+
 typechecked :: [CommandLineOption] -> ModSummary -> TcGblEnv -> TcM TcGblEnv
 typechecked _ _ env = checkAll env >> return env
 
 install :: [CommandLineOption] -> [CoreToDo] -> CoreM [CoreToDo]
-install _ todo = return (strPass : todo)
-    where strPass = CoreDoPluginPass "Rattus strictify" strictifyProgram
+install opts todo = return (strPass : todo)
+    where strPass = CoreDoPluginPass "Rattus strictify" (strictifyProgram Options{debugMode = dmode})
+          dmode = "debug" `elem` opts
 
 -- | Apply the following operations to all Rattus definitions in the
 -- program:
@@ -53,13 +56,13 @@ install _ todo = return (strPass : todo)
 -- * Check whether lazy data types are used (see Strictify module)
 -- * Transform into call-by-value form (see Strictify module)
 
-strictifyProgram :: ModGuts -> CoreM ModGuts
-strictifyProgram guts = do
-  newBinds <- mapM (strictify guts) (mg_binds guts)
+strictifyProgram :: Options -> ModGuts -> CoreM ModGuts
+strictifyProgram opts guts = do
+  newBinds <- mapM (strictify opts guts) (mg_binds guts)
   return guts { mg_binds = newBinds }
 
-strictify :: ModGuts -> CoreBind -> CoreM (CoreBind)
-strictify guts b@(Rec bs) = do
+strictify :: Options -> ModGuts -> CoreBind -> CoreM (CoreBind)
+strictify opts guts b@(Rec bs) = do
   tr <- liftM or (mapM (shouldTransform guts . fst) bs)
   if tr then do
     let vs = map fst bs
@@ -67,16 +70,12 @@ strictify guts b@(Rec bs) = do
                     e' <- toSingleTick e
                     lazy <- allowLazyData guts v
                     e'' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy))e'
-                    b <- checkExpr (emptyCtx (Set.fromList vs)) e''
-                    when (not b) $ do
-                            liftIO $ putStrLn "-------- old --------"
-                            liftIO $ putStrLn (showSDocUnsafe (ppr e))
-                            liftIO $ putStrLn "-------- new --------"
-                            liftIO $ putStrLn (showSDocUnsafe (ppr e''))
+                    checkExpr CheckExpr{ recursiveSet = Set.fromList vs, oldExpr = e,
+                                         fatalError = False, verbose = debugMode opts} e''
                     return e'') bs
     return (Rec (zip vs es'))
   else return b
-strictify guts b@(NonRec v e) = do
+strictify opts guts b@(NonRec v e) = do
     tr <- shouldTransform guts v
     if tr then do
       -- liftIO $ putStrLn "-------- old --------"
@@ -86,12 +85,8 @@ strictify guts b@(NonRec v e) = do
       -- liftIO $ putStrLn (showSDocUnsafe (ppr e'))
       lazy <- allowLazyData guts v
       e'' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy)) e'
-      b <- checkExpr (emptyCtx Set.empty) e''
-      when (not b) $ do
-        liftIO $ putStrLn "-------- old --------"
-        liftIO $ putStrLn (showSDocUnsafe (ppr e))
-        liftIO $ putStrLn "-------- new --------"
-        liftIO $ putStrLn (showSDocUnsafe (ppr e''))
+      checkExpr CheckExpr{ recursiveSet = Set.empty, oldExpr = e,
+                           fatalError = False, verbose = debugMode opts} e''
       return (NonRec v e'')
     else return b
 

@@ -5,7 +5,7 @@
 -- typable in the single tick calculus.
 
 module Rattus.Plugin.CheckSingleTick
-  (checkExpr, emptyCtx) where
+  (checkExpr, CheckExpr (..)) where
 
 
 import Rattus.Plugin.Utils 
@@ -17,7 +17,8 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe
+import Control.Applicative
+import Data.Foldable
 
 type LCtx = Set Var
 data HiddenReason = BoxApp | AdvApp | NestedRec Var | FunDef | DelayApp
@@ -25,6 +26,7 @@ type Hidden = Map Var HiddenReason
 
 data Prim = Delay | Adv | Box | Arr
 
+data TypeError = TypeError SrcSpan SDoc
 
 instance Outputable Prim where
   ppr Delay = "delay"
@@ -46,8 +48,7 @@ data Ctx = Ctx
 
 primMap :: Map FastString Prim
 primMap = Map.fromList
-  [--("Delay", Delay),
-   ("delay", Delay),
+  [("delay", Delay),
    ("adv", Adv),
    ("box", Box),
    ("arr", Arr)
@@ -73,7 +74,7 @@ stabilize hr c = c
   where ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
 
 
-data Scope = Hidden SDoc | Visible | ImplUnboxed
+data Scope = Hidden SDoc | Visible
 
 getScope  :: Ctx -> Var -> Scope
 getScope c v =
@@ -98,8 +99,6 @@ getScope c v =
             else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
                          "It occurs under delay" $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
           | Set.member v (current c) -> Visible
-          | isTemporal (varType v) && isJust (earlier c) && userFunction v
-            -> ImplUnboxed
           | otherwise -> Visible
 
 
@@ -108,16 +107,10 @@ pickFirst :: SrcSpan -> SrcSpan -> SrcSpan
 pickFirst s@RealSrcSpan{} _ = s
 pickFirst _ s = s
 
-printMessage' :: Severity -> Ctx -> Var -> SDoc -> CoreM ()
-printMessage' sev cxt var doc =
-  printMessage sev (pickFirst (srcLoc cxt) (nameSrcSpan (varName var))) doc
 
-printMessageCheck :: Severity -> Ctx -> Var -> SDoc -> CoreM Bool
-printMessageCheck sev cxt var doc = printMessage' sev cxt var doc >>
-  case sev of
-    SevError -> return False
-    _ -> return True
-
+typeError :: Ctx -> Var -> SDoc -> CoreM (Maybe TypeError)
+typeError cxt var doc =
+  return (Just (TypeError (pickFirst (srcLoc cxt) (nameSrcSpan (varName var))) doc))
 
 
 emptyCtx :: Set Var -> Ctx
@@ -161,57 +154,79 @@ isStableConstr t =
         _ -> return Nothing                           
     _ ->  return Nothing
 
-checkExpr :: Ctx -> Expr Var -> CoreM Bool
-checkExpr c (App e e') | isType e' || (not $ tcIsLiftedTypeKind $ typeKind $ exprType e')
-  = checkExpr c e
-checkExpr c@Ctx{current = cur, hidden = hid, earlier = earl} (App e1 e2) =
+
+data CheckExpr = CheckExpr{
+  recursiveSet :: Set Var,
+  oldExpr :: Expr Var,
+  fatalError :: Bool,
+  verbose :: Bool
+  }
+
+checkExpr :: CheckExpr -> Expr Var -> CoreM ()
+checkExpr c e = do
+  res <- checkExpr' (emptyCtx (recursiveSet c)) e
+  case res of
+    Nothing -> return ()
+    Just (TypeError src doc) ->
+      let sev = if fatalError c then SevError else SevWarning
+      in if verbose c then do
+        printMessage sev src ("Internal error in Rattus Plugin: single tick transformation did not preserve typing." $$ doc)
+        liftIO $ putStrLn "-------- old --------"
+        liftIO $ putStrLn (showSDocUnsafe (ppr (oldExpr c)))
+        liftIO $ putStrLn "-------- new --------"
+        liftIO $ putStrLn (showSDocUnsafe (ppr e))
+         else
+        printMessage sev noSrcSpan ("Internal error in Rattus Plugin: single tick transformation did not preserve typing." $$
+                             "Compile with flags \"-fplugin-opt Rattus.Plugin:debug\" and \"-g2\" for detailed information")
+
+checkExpr' :: Ctx -> Expr Var -> CoreM (Maybe TypeError)
+checkExpr' c (App e e') | isType e' || (not $ tcIsLiftedTypeKind $ typeKind $ exprType e')
+  = checkExpr' c e
+checkExpr' c@Ctx{current = cur, hidden = hid, earlier = earl} (App e1 e2) =
   case isPrimExpr c e1 of
     Just (p,v) -> case p of
       Box -> do
-        checkExpr (stabilize BoxApp c) e2
+        checkExpr' (stabilize BoxApp c) e2
       Arr -> do
-        checkExpr (stabilize BoxApp c) e2
+        checkExpr' (stabilize BoxApp c) e2
 
       Delay -> case earl of
         Just earl' ->
-          checkExpr c{current = Set.empty, earlier = Just cur,
+          checkExpr' c{current = Set.empty, earlier = Just cur,
                       ticks = ticks c + 1, hidden = hidden c `Map.union` Map.fromSet (const DelayApp) earl'} e2
-        Nothing -> checkExpr c{current = Set.empty, earlier = Just cur, ticks = ticks c + 1} e2
+        Nothing -> checkExpr' c{current = Set.empty, earlier = Just cur, ticks = ticks c + 1} e2
       Adv -> case earl of
-        Just er -> checkExpr c{earlier = Nothing, current = er, ticks = ticks c - 1,
+        Just er -> checkExpr' c{earlier = Nothing, current = er, ticks = ticks c - 1,
                                hidden = hid `Map.union` Map.fromSet (const AdvApp) cur} e2
-        Nothing -> printMessageCheck SevError c v (text "can only advance under delay")
-    _ -> liftM2 (&&) (checkExpr c e1)  (checkExpr c e2)
-checkExpr c (Case e v _ alts) =
-    liftM2 (&&) (checkExpr c e) (liftM and (mapM (\ (_,vs,e)-> checkExpr (addVars vs c') e) alts))
+        Nothing -> typeError c v (text "can only advance under delay")
+    _ -> liftM2 (<|>) (checkExpr' c e1)  (checkExpr' c e2)
+checkExpr' c (Case e v _ alts) =
+    liftM2 (<|>) (checkExpr' c e) (liftM (foldl' (<|>) Nothing) (mapM (\ (_,vs,e)-> checkExpr' (addVars vs c') e) alts))
   where c' = addVars [v] c
--- checkExpr c@Ctx{earlier = Just _} (Lam v _) =
---   printMessageCheck SevError c v (text "Functions may not be defined under delay."
---                                   $$ "In order to define a function under delay, you have to wrap it in box.")
-checkExpr c (Lam v e)
+checkExpr' c (Lam v e)
   | isTyVar v || (not $ tcIsLiftedTypeKind $ typeKind $ varType v) = do
       is <- isStableConstr (varType v)
       let c' = case is of
             Nothing -> c
             Just t -> c{stableTypes = Set.insert t (stableTypes c)}
-      checkExpr c' e
-  | otherwise = checkExpr (addVars [v] (stabilizeLater c)) e
-checkExpr _ (Type _)  = return True
-checkExpr _ (Lit _)  = return True
-checkExpr _ (Coercion _)  = return True
-checkExpr c (Tick (SourceNote span _name) e) =
-  checkExpr c{srcLoc = RealSrcSpan span} e
-checkExpr c (Tick _ e) = checkExpr c e
-checkExpr c (Cast e _) = checkExpr c e
-checkExpr c (Let (NonRec v e1) e2) =
+      checkExpr' c' e
+  | otherwise = checkExpr' (addVars [v] (stabilizeLater c)) e
+checkExpr' _ (Type _)  = return Nothing
+checkExpr' _ (Lit _)  = return Nothing
+checkExpr' _ (Coercion _)  = return Nothing
+checkExpr' c (Tick (SourceNote span _name) e) =
+  checkExpr' c{srcLoc = RealSrcSpan span} e
+checkExpr' c (Tick _ e) = checkExpr' c e
+checkExpr' c (Cast e _) = checkExpr' c e
+checkExpr' c (Let (NonRec v e1) e2) =
   case isPrimExpr c e1 of
-    Just (p,_) -> (checkExpr (c{primAlias = Map.insert v p (primAlias c)}) e2)
-    Nothing -> liftM2 (&&) (checkExpr c e1)  (checkExpr (addVars [v] c) e2)
-checkExpr _ (Let (Rec ([])) _) = return True
-checkExpr c (Let (Rec binds) e2) = do
-    r1 <- mapM (\ (v,e) -> checkExpr (c' v) e) binds
-    r2 <- checkExpr (addVars vs c) e2
-    return (and r1 && r2)  
+    Just (p,_) -> (checkExpr' (c{primAlias = Map.insert v p (primAlias c)}) e2)
+    Nothing -> liftM2 (<|>) (checkExpr' c e1)  (checkExpr' (addVars [v] c) e2)
+checkExpr' _ (Let (Rec ([])) _) = return Nothing
+checkExpr' c (Let (Rec binds) e2) = do
+    r1 <- mapM (\ (v,e) -> checkExpr' (c' v) e) binds
+    r2 <- checkExpr' (addVars vs c) e2
+    return (foldl' (<|>) Nothing r1 <|> r2)  
   where vs = map fst binds
         ctxHid = maybe (current c) (Set.union (current c)) (earlier c)
         c' v = c {current = Set.empty,
@@ -219,14 +234,11 @@ checkExpr c (Let (Rec binds) e2) = do
                   hidden =  hidden c `Map.union`
                    (Map.fromSet (const (NestedRec v)) ctxHid),
                   recDef = recDef c `Set.union` Set.fromList vs }
-checkExpr c  (Var v)
+checkExpr' c  (Var v)
   | tcIsLiftedTypeKind $ typeKind $ varType v =  case getScope c v of
-             Hidden reason -> printMessageCheck SevError c v reason
-             Visible -> return True
-             ImplUnboxed -> printMessageCheck SevWarning c v
-                (ppr v <> text " is an external temporal function used under delay, which may cause time leaks")
-
-  | otherwise = return True
+             Hidden reason -> typeError c v reason
+             Visible -> return Nothing
+  | otherwise = return Nothing
 
 
 
