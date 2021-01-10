@@ -90,6 +90,19 @@ mapUnboxedMutual f = run
   where run (x ::: xs) = f x ::: delay (run' (adv xs))
         run' (x ::: xs) = f x ::: delay (run (adv xs))
 
+
+-- mutual recursive pattern definitions
+foo1,foo2 :: Box (a -> b) -> Str a -> Str b
+(foo1,foo2) = (\ f (x ::: xs) -> unbox f x ::: (delay (foo2 f) <#> xs),
+               \ f (x ::: xs) -> unbox f x ::: (delay (foo1 f) <#> xs))
+
+nestedPattern :: Box (a -> b) -> Str a -> Str b
+nestedPattern = foo1 where
+  foo1,foo2 :: Box (a -> b) -> Str a -> Str b
+  (foo1,foo2) = (\ f (x ::: xs) -> unbox f x ::: (delay (foo2 f) <#> xs),
+                 \ f (x ::: xs) -> unbox f x ::: (delay (foo1 f) <#> xs))
+
+
 data Input = Input {jump :: !Bool, move :: Move}
 data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove
 

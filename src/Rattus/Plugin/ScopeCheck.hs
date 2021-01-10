@@ -258,6 +258,19 @@ instance Scope a => Scope (GRHS GhcTc a) where
   check XGRHS{} = return True
 
 
+checkRec :: GetCtxt => LHsBindLR GhcTc GhcTc -> TcM Bool
+checkRec b =  liftM2 (&&) (checkPatBind b) (check b)
+
+checkPatBind :: GetCtxt => LHsBindLR GhcTc GhcTc -> TcM Bool
+checkPatBind (L l b) = (\c -> c {srcLoc = l}) `modifyCtxt` checkPatBind' b
+
+checkPatBind' :: GetCtxt => HsBindLR GhcTc GhcTc -> TcM Bool
+checkPatBind' PatBind{} = do
+  printMessage' SevError ("(Mutual) recursive pattern binding definitions are not supported in Rattus")
+  return False
+         
+checkPatBind' AbsBinds {abs_binds = binds} = liftM and (mapM checkPatBind (bagToList binds))
+checkPatBind' _ = return True
 
 
 -- | Check the scope of a list of (mutual) recursive bindings. The
@@ -270,7 +283,7 @@ checkRecursiveBinds bs vs = do
       Just reason | res ->
         (printMessage' SevWarning (recReason reason <> " can cause time leaks")) >> return (res, vs)
       _ -> return (res, vs)
-    where check' b@(L l _) = fc l `modifyCtxt` check b
+    where check' b@(L l _) = fc l `modifyCtxt` checkRec b
           fc l c = let
             ctxHid = either (const $ current c) (Set.union (current c) . Set.unions) (earlier c)
             in c {current = Set.empty,
@@ -554,7 +567,7 @@ checkSCC errm (AcyclicSCC (b,_)) = setCtxt (emptyCtxt errm Nothing) (check b)
 checkSCC errm (CyclicSCC bs) = (fmap and (mapM check' bs'))
   where bs' = map fst bs
         vs = foldMap snd bs
-        check' b@(L l _) = setCtxt (emptyCtxt errm (Just (vs,l))) (check b)
+        check' b@(L l _) = setCtxt (emptyCtxt errm (Just (vs,l))) (checkRec b)
 
 -- | Stabilizes the given context, i.e. remove all non-stable types
 -- and any tick. This is performed on checking 'box', 'arr' and
