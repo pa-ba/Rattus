@@ -88,6 +88,10 @@ applyDelay f x = delay (adv f <#> adv x)
 stableDelay :: Stable a => a -> O a
 stableDelay x = delay x
 
+patternBinding :: Str Int -> Str Int
+patternBinding str = (x + 1) ::: (delay patternBinding <#> xs)
+  where (x ::: xs) = sumBox str
+
 
 data Input a = Input {jump :: !a, move :: !Move}
 data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove
