@@ -1,6 +1,3 @@
-resolver: lts-15.11
+resolver: lts-17.1
 packages:
 - .
-
-extra-deps:
-- simple-affine-space-0.1.1@sha256:c2afdf618a641cebe213820ed3df82da62aee325483ea848a267d1d39b41f868,1933
