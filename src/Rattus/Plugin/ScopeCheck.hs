@@ -22,9 +22,16 @@ import Rattus.Plugin.Annotation
 import Data.IORef
 
 import Prelude hiding ((<>))
+
+#if __GLASGOW_HASKELL__ >= 900
+import GHC.Plugins
+import GHC.Tc.Types
+import GHC.Data.Bag
+#else
 import GhcPlugins
 import TcRnTypes
 import Bag
+#endif
 
 #if __GLASGOW_HASKELL__ >= 810
 import GHC.Hs.Extension
@@ -101,7 +108,7 @@ emptyCtxt em mvar =
          current =  Set.empty,
          earlier = Left NoDelay,
          hidden = Map.empty,
-         srcLoc = UnhelpfulSpan "<no location info>",
+         srcLoc = noLocationInfo,
          recDef = mvar,
          primAlias = Map.empty,
          stableTypes = Set.empty,
@@ -217,15 +224,24 @@ instance Scope a => Scope [a] where
 
 instance Scope a => Scope (Match GhcTc a) where
   check Match{m_pats=ps,m_grhss=rhs} = addVars (getBV ps) `modifyCtxt` check rhs
+#if __GLASGOW_HASKELL__ < 900
   check XMatch{} = return True
+#endif
 
+  
 instance Scope a => Scope (MatchGroup GhcTc a) where
   check MG {mg_alts = alts} = check alts
+#if __GLASGOW_HASKELL__ < 900
   check XMatchGroup {} = return True
+#endif
 
 instance Scope a => ScopeBind (StmtLR GhcTc GhcTc a) where
   checkBind (LastStmt _ b _ _) =  ( , Set.empty) <$> check b
+#if __GLASGOW_HASKELL__ >= 900
+  checkBind (BindStmt _ p b) = do
+#else
   checkBind (BindStmt _ p b _ _) = do
+#endif
     let vs = getBV p
     let c' = addVars vs ?ctxt
     r <- setCtxt c' (check b)
@@ -236,8 +252,9 @@ instance Scope a => ScopeBind (StmtLR GhcTc GhcTc a) where
   checkBind TransStmt{} = notSupported "monad comprehensions"
   checkBind ApplicativeStmt{} = notSupported "applicative do notation"
   checkBind RecStmt{} = notSupported "recursive do notation"
+#if __GLASGOW_HASKELL__ < 900
   checkBind XStmtLR {} = return (True,Set.empty)
-
+#endif
 
 instance ScopeBind a => ScopeBind [a] where
   checkBind [] = return (True,Set.empty)
@@ -255,8 +272,9 @@ instance Scope a => Scope (GRHS GhcTc a) where
     (r, vs) <- checkBind gs
     r' <- addVars vs `modifyCtxt`  (check b)
     return (r && r')
+#if __GLASGOW_HASKELL__ < 900
   check XGRHS{} = return True
-
+#endif
 
 checkRec :: GetCtxt => LHsBindLR GhcTc GhcTc -> TcM Bool
 checkRec b =  liftM2 (&&) (checkPatBind b) (check b)
@@ -337,15 +355,19 @@ instance ScopeBind (HsLocalBindsLR GhcTc GhcTc) where
   checkBind (HsValBinds _ bs) = checkBind bs
   checkBind HsIPBinds {} = notSupported "implicit parameters"
   checkBind EmptyLocalBinds{} = return (True,Set.empty)
+#if __GLASGOW_HASKELL__ < 900
   checkBind XHsLocalBindsLR{} = return (True,Set.empty)
-
+#endif
+  
 instance Scope a => Scope (GRHSs GhcTc a) where
   check GRHSs{grhssGRHSs = rhs, grhssLocalBinds = lbinds} = do
     (l,vs) <- checkBind lbinds
     r <- addVars vs `modifyCtxt` (check rhs)
     return (r && l)
+#if __GLASGOW_HASKELL__ < 900
   check XGRHSs{} = return True
-
+#endif
+  
 instance Show Var where
   show v = getOccString v
 
@@ -430,14 +452,11 @@ instance Scope (HsExpr GhcTc) where
   
   check (HsTick _ _ e) = check e
   check (HsBinTick _ _ _ e) = check e  
-  check (HsSCC _ _ _ e) = check e
   check (HsPar _ e) = check e
-  check (HsWrap _ _ e) = check e
   check HsLit{} = return True
   check (OpApp _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
   check (HsLam _ mg) = check mg
   check (HsLamCase _ mg) = check mg
-  check (HsIf _ _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
   check (HsCase _ e1 e2) = (&&) <$> check e1 <*> check e2
   check (SectionL _ e1 e2) = (&&) <$> check e1 <*> check e2
   check (SectionR _ e1 e2) = (&&) <$> check e1 <*> check e2
@@ -467,9 +486,16 @@ instance Scope (HsExpr GhcTc) where
     where mod c = addVars (getBV p) (stabilize StableArr c)
   check (HsStatic _ e) = check e
   check (HsDo _ _ e) = fst <$> checkBind e
+#if __GLASGOW_HASKELL__ < 900
+  check (HsSCC _ _ _ e) = check e
   check (HsCoreAnn _ _ _ e) = check e
   check (HsTickPragma _ _ _ _ e) = check e
-  check XExpr {} = return True
+  check (HsWrap _ _ e) = check e
+  check (HsIf _ _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
+#endif
+  check (XExpr e) = check e
+  check (HsPragE _ _ e) = check e
+  check (HsIf _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
 #if __GLASGOW_HASKELL__ < 810
   check HsArrApp{} = impossible
   check HsArrForm{} = impossible
@@ -482,11 +508,18 @@ impossible :: GetCtxt => TcM Bool
 impossible = printMessageCheck SevError "This syntax should never occur after typechecking"
 #endif
 
+#if __GLASGOW_HASKELL__ >= 900
+instance Scope XXExprGhcTc where
+  check (WrapExpr (HsWrap _ e)) = check e
+  check (ExpansionExpr (HsExpanded _ e)) = check e
+#endif
 
 instance Scope (HsCmdTop GhcTc) where
   check (HsCmdTop _ e) = check e
+#if __GLASGOW_HASKELL__ < 900
   check XCmdTop{} = return True
-
+#endif
+  
 instance Scope (HsCmd GhcTc) where
   check (HsCmdArrApp _ e1 e2 _ _) = (&&) <$> check e1 <*> check e2
   check (HsCmdDo _ e) = fst <$> checkBind e
@@ -500,8 +533,13 @@ instance Scope (HsCmd GhcTc) where
     (l,vs) <- checkBind bs
     r <- addVars vs `modifyCtxt` (check e)
     return (r && l)
+#if __GLASGOW_HASKELL__ >= 900
+  check (XCmd (HsWrap _ e)) = check e
+  check (HsCmdLamCase _ e) = check e
+#else
   check (HsCmdWrap _ _ e) = check e
   check XCmd{} = return True
+#endif
 
 
 instance Scope (ArithSeqInfo GhcTc) where
@@ -519,7 +557,9 @@ instance Scope (HsRecField' a (LHsExpr GhcTc)) where
 instance Scope (HsTupArg GhcTc) where
   check (Present _ e) = check e
   check Missing{} = return True
+#if __GLASGOW_HASKELL__ < 900
   check XTupArg{} = return True
+#endif
   
 instance Scope (HsBindLR GhcTc GhcTc) where
   check AbsBinds {abs_binds = binds, abs_ev_vars  = ev} = mod `modifyCtxt` check binds
@@ -531,7 +571,9 @@ instance Scope (HsBindLR GhcTc GhcTc) where
   check PatBind{pat_lhs = lhs, pat_rhs=rhs} = addVars (getBV lhs) `modifyCtxt` check rhs
   check VarBind{var_rhs = rhs} = check rhs
   check PatSynBind {} = return True -- pattern synonyms are not supported
+#if __GLASGOW_HASKELL__ < 900
   check XHsBindsLR {} = return True
+#endif
 
 
 -- | Checks whether the given type is a type constraint of the form
@@ -554,7 +596,11 @@ isStableConstr t =
 -- of type variables @[a1,...,am]@ for which there is a constraint
 -- @Stable ai@ among @C1, ... Cn@.
 extractStableConstr :: Type -> [TyVar]
+#if __GLASGOW_HASKELL__ >= 900
+extractStableConstr  = mapMaybe isStableConstr . map irrelevantMult . fst . splitFunTys . snd . splitForAllTys
+#else
 extractStableConstr  = mapMaybe isStableConstr . fst . splitFunTys . snd . splitForAllTys
+#endif
 
 
 -- | Checks a top-level definition group, which is either a single
@@ -652,16 +698,23 @@ isPrimExpr (L _ e) = isPrimExpr' e where
   isPrimExpr' (HsVar _ (L _ v)) = fmap (,v) (isPrim v)
   
 #if __GLASGOW_HASKELL__ >= 808
-  isPrimExpr' (HsAppType _ e _)
+  isPrimExpr' (HsAppType _ e _) = isPrimExpr e
 #else
-  isPrimExpr' (HsAppType _ e)
+  isPrimExpr' (HsAppType _ e)   = isPrimExpr e
 #endif
-    = isPrimExpr e
+#if __GLASGOW_HASKELL__ < 900
+  isPrimExpr' (HsSCC _ _ _ e) = isPrimExpr e
+  isPrimExpr' (HsCoreAnn _ _ _ e) = isPrimExpr e
+  isPrimExpr' (HsTickPragma _ _ _ _ e) = isPrimExpr e
+#else
+  isPrimExpr' (XExpr (WrapExpr (HsWrap _ e))) = isPrimExpr' e
+  isPrimExpr' (XExpr (ExpansionExpr (HsExpanded _ e))) = isPrimExpr' e
+  isPrimExpr' (HsPragE _ _ e) = isPrimExpr e
+#endif
   isPrimExpr' (HsTick _ _ e) = isPrimExpr e
   isPrimExpr' (HsBinTick _ _ _ e) = isPrimExpr e  
-  isPrimExpr' (HsSCC _ _ _ e) = isPrimExpr e
-  isPrimExpr' (HsWrap _ _ e) = isPrimExpr' e
   isPrimExpr' (HsPar _ e) = isPrimExpr e
+
   isPrimExpr' _ = Nothing
 
 

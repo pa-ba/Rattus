@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE CPP #-}
 
 
 -- | The plugin to make it all work.
@@ -14,16 +15,19 @@ import Rattus.Plugin.Utils
 import Rattus.Plugin.Annotation
 
 import Prelude hiding ((<>))
-import GhcPlugins
-import TcRnTypes
-
 
 import Control.Monad
 import Data.Maybe
 import Data.Data hiding (tyConName)
 import qualified Data.Set as Set
 
-
+#if __GLASGOW_HASKELL__ >= 900
+import GHC.Plugins
+import GHC.Tc.Types
+#else
+import GhcPlugins
+import TcRnTypes
+#endif
 
 -- | Use this to enable Rattus' plugin, either by supplying the option
 -- @-fplugin=Rattus.Plugin@ directly to GHC. or by including the
@@ -113,8 +117,14 @@ shouldTransform guts bndr = do
 
 annotationsOn :: (Data a) => ModGuts -> CoreBndr -> CoreM [a]
 annotationsOn guts bndr = do
+#if __GLASGOW_HASKELL__ >= 900
+  (_,anns)  <- getAnnotations deserializeWithData guts
+  return $
+    lookupWithDefaultUFM anns [] (varName bndr) ++
+    getModuleAnnotations guts
+#else    
   anns <- getAnnotations deserializeWithData guts
   return $
     lookupWithDefaultUFM anns [] (varUnique bndr) ++
     getModuleAnnotations guts
-
+#endif

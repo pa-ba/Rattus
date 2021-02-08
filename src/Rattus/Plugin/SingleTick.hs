@@ -1,12 +1,20 @@
 -- | This module implements the translation from the multi-tick
 -- calculus to the single tick calculus.
 
+{-# LANGUAGE CPP #-}
+
 module Rattus.Plugin.SingleTick
   (toSingleTick) where
 
+#if __GLASGOW_HASKELL__ >= 900
+import GHC.Plugins
+#else
+import GhcPlugins
+#endif
+
+  
 import Rattus.Plugin.Utils
 import Prelude hiding ((<>))
-import GhcPlugins
 import Control.Monad.Trans.Writer.Strict
 import Control.Monad.Trans.Class
 import Data.List
@@ -71,7 +79,7 @@ extractAdvApp :: CoreExpr -> CoreExpr -> WriterT [(Id,CoreExpr)] CoreM CoreExpr
 extractAdvApp e1 e2
   | isVar e2 = return (App e1 e2)
   | otherwise = do
-  x <- lift (mkSysLocalM (fsLit "adv") (exprType e2))
+  x <- lift (mkSysLocalFromExpr (fsLit "adv") e2)
   tell [(x,e2)]
   return (App e1 (Var x))
 
@@ -127,7 +135,7 @@ extractAdv e@Coercion{} = return e
 extractAdv' :: CoreExpr -> WriterT [(Id,CoreExpr,CoreExpr)] CoreM CoreExpr
 extractAdv' e@(App e1 e2)
   | isAdvApp e1 = do
-       x <- lift (mkSysLocalM (fsLit "adv") (exprType e))
+       x <- lift (mkSysLocalFromExpr (fsLit "adv") e)
        tell [(x,e1,e2)]
        return (Var x)
   | isDelayApp e1 = do

@@ -84,7 +84,7 @@ instance Functor List where
 
 
 -- | Strict variant of 'Maybe'.
-data Maybe' a = Just' ! a | Nothing'
+data Maybe' a = Just' !a | Nothing'
 
 -- | takes a default value, a function, and a 'Maybe'' value.  If the
 -- 'Maybe'' value is 'Nothing'', the function returns the default

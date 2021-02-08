@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE CPP #-}
 
 -- | This module implements the check that the transformed code is
 -- typable in the single tick calculus.
@@ -7,11 +8,15 @@
 module Rattus.Plugin.CheckSingleTick
   (checkExpr, CheckExpr (..)) where
 
+#if __GLASGOW_HASKELL__ >= 900
+import GHC.Plugins
+#else
+import GhcPlugins
+#endif
 
 import Rattus.Plugin.Utils 
 
 import Prelude hiding ((<>))
-import GhcPlugins
 import Control.Monad
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -118,7 +123,7 @@ emptyCtx vars =
   Ctx { current =  Set.empty,
         earlier = Nothing,
         hidden = Map.empty,
-        srcLoc = UnhelpfulSpan "<no location info>",
+        srcLoc = noLocationInfo,
         recDef = vars,
         primAlias = Map.empty,
         stableTypes = Set.empty,
@@ -215,7 +220,7 @@ checkExpr' _ (Type _)  = return Nothing
 checkExpr' _ (Lit _)  = return Nothing
 checkExpr' _ (Coercion _)  = return Nothing
 checkExpr' c (Tick (SourceNote span _name) e) =
-  checkExpr' c{srcLoc = RealSrcSpan span} e
+  checkExpr' c{srcLoc = fromRealSrcSpan span} e
 checkExpr' c (Tick _ e) = checkExpr' c e
 checkExpr' c (Cast e _) = checkExpr' c e
 checkExpr' c (Let (NonRec v e1) e2) =

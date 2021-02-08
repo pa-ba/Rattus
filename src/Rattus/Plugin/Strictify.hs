@@ -1,11 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE CPP #-}
 module Rattus.Plugin.Strictify
   (strictifyExpr, SCxt (..)) where
 import Prelude hiding ((<>))
 import Rattus.Plugin.Utils
-import GhcPlugins
 
+#if __GLASGOW_HASKELL__ >= 900
+import GHC.Plugins
+#else
+import GhcPlugins
+#endif
 
 data SCxt = SCxt {srcSpan :: SrcSpan, checkStrictData :: Bool}
 
@@ -30,7 +34,7 @@ strictifyExpr ss (Lam b e)
    | not (isCoVar b) && not (isTyVar b) && tcIsLiftedTypeKind(typeKind (varType b))
     = do
        e' <- strictifyExpr ss e
-       b' <- mkSysLocalM (fsLit "strict") (varType b)
+       b' <- mkSysLocalFromVar (fsLit "strict") b
        return (Lam b' (Case (varToCoreExpr b') b (exprType e) [(DEFAULT,[],e')]))
    | otherwise = do
        e' <- strictifyExpr ss e
@@ -39,7 +43,7 @@ strictifyExpr ss (Cast e c) = do
   e' <- strictifyExpr ss e
   return (Cast e' c)
 strictifyExpr ss (Tick t@(SourceNote span _) e) = do
-  e' <- strictifyExpr (ss{srcSpan = RealSrcSpan span}) e
+  e' <- strictifyExpr (ss{srcSpan = fromRealSrcSpan span}) e
   return (Tick t e')
 strictifyExpr ss (App e1 e2)
   | (checkStrictData ss && not (isType e2) && tcIsLiftedTypeKind(typeKind (exprType e2))

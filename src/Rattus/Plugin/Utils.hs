@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP #-}
+
 module Rattus.Plugin.Utils (
   printMessage,
   Severity(..),
@@ -11,17 +13,30 @@ module Rattus.Plugin.Utils (
   isStrict,
   isTemporal,
   userFunction,
-  isType)
+  isType,
+  mkSysLocalFromVar,
+  mkSysLocalFromExpr,
+  fromRealSrcSpan,
+  noLocationInfo)
   where
 
-import ErrUtils
-import Prelude hiding ((<>))
+#if __GLASGOW_HASKELL__ >= 900
+import GHC.Plugins
+import GHC.Utils.Error
+import GHC.Utils.Monad
+#else
 import GhcPlugins
+import ErrUtils
+import MonadUtils
+#endif
+
+
+import Prelude hiding ((<>))
+
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Char
 import Data.Maybe
-import MonadUtils
 
 isType Type {} = True
 isType (App e _) = isType e
@@ -29,16 +44,23 @@ isType (Cast e _) = isType e
 isType (Tick _ e) = isType e
 isType _ = False
 
+
+
 printMessage :: (HasDynFlags m, MonadIO m) =>
                 Severity -> SrcSpan -> MsgDoc -> m ()
 printMessage sev loc doc = do
+#if __GLASGOW_HASKELL__ >= 900  
+  dflags <- getDynFlags
+  liftIO $ putLogMsg dflags NoReason sev loc doc
+#else
   dflags <- getDynFlags
   let sty = case sev of
-                     SevError   -> defaultErrStyle dflags
-                     SevWarning -> defaultErrStyle dflags
-                     SevDump    -> defaultDumpStyle dflags
-                     _          -> defaultUserStyle dflags
+              SevError   -> defaultErrStyle dflags
+              SevWarning -> defaultErrStyle dflags
+              SevDump    -> defaultDumpStyle dflags
+              _          -> defaultUserStyle dflags
   liftIO $ putLogMsg dflags NoReason sev loc sty doc
+#endif
 
 
 
@@ -214,3 +236,42 @@ userFunction v =
       | isUpper c || c == '$' || c == ':' -> False
       | otherwise -> True
     _ -> False
+
+
+
+mkSysLocalFromVar :: MonadUnique m => FastString -> Var -> m Id
+#if __GLASGOW_HASKELL__ >= 900
+mkSysLocalFromVar lit v = mkSysLocalM lit (varMult v) (varType v)
+#else
+mkSysLocalFromVar lit v = mkSysLocalM lit (varType v)
+#endif
+
+mkSysLocalFromExpr :: MonadUnique m => FastString -> CoreExpr -> m Id
+#if __GLASGOW_HASKELL__ >= 900
+mkSysLocalFromExpr lit e = mkSysLocalM lit One (exprType e)
+#else
+mkSysLocalFromExpr lit e = mkSysLocalM lit (exprType e)
+#endif
+
+
+fromRealSrcSpan :: RealSrcSpan -> SrcSpan
+#if __GLASGOW_HASKELL__ >= 900
+fromRealSrcSpan span = RealSrcSpan span Nothing
+#else
+fromRealSrcSpan span = RealSrcSpan span
+#endif
+
+
+#if __GLASGOW_HASKELL__ >= 900
+instance Ord SrcSpan where
+  compare (RealSrcSpan s _) (RealSrcSpan t _) = compare s t
+  compare RealSrcSpan{} _ = LT
+  compare _ _ = GT
+#endif
+
+noLocationInfo :: SrcSpan
+#if __GLASGOW_HASKELL__ >= 900
+noLocationInfo = UnhelpfulSpan UnhelpfulNoLocationInfo
+#else         
+noLocationInfo = UnhelpfulSpan "<no location info>"
+#endif

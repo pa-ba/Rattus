@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE CPP #-}
 
 -- | This module is used to perform a dependency analysis of top-level
@@ -9,23 +10,30 @@
 
 module Rattus.Plugin.Dependency (dependency, HasBV (..),printBinds) where
 
-
+#if __GLASGOW_HASKELL__ >= 900
+import GHC.Plugins
+import GHC.Data.Bag
+import GHC.Hs.Type
+#else
 import GhcPlugins
 import Bag
-
+#if __GLASGOW_HASKELL__ >= 810
+import GHC.Hs.Types
+#else
+import HsTypes
+#endif
+#endif
 
 #if __GLASGOW_HASKELL__ >= 810
 import GHC.Hs.Extension
 import GHC.Hs.Expr
 import GHC.Hs.Pat
 import GHC.Hs.Binds
-import GHC.Hs.Types
 #else 
 import HsExtension
 import HsExpr
 import HsPat
 import HsBinds
-import HsTypes
 #endif
 
 import Data.Set (Set)
@@ -34,8 +42,6 @@ import Data.Graph
 import Data.Maybe
 import Data.Either
 import Prelude hiding ((<>))
-
-
 
 
 
@@ -80,8 +86,10 @@ instance HasBV (HsBindLR GhcTc GhcTc) where
   getBV (PatBind {pat_lhs = pat}) = getBV pat
   getBV (VarBind {var_id = v}) = Set.singleton v
   getBV PatSynBind{} = Set.empty
-  getBV XHsBindsLR{} = Set.empty
-
+#if __GLASGOW_HASKELL__ < 900
+  getBV (XHsBindsLR e) = getBV e
+#endif
+  
 instance HasBV a => HasBV (GenLocated b a) where
   getBV (L _ e) = getBV e
 
@@ -95,6 +103,11 @@ getConBV (InfixCon p p') = getBV p `Set.union` getBV p'
 getConBV (RecCon (HsRecFields {rec_flds = fs})) = foldl run Set.empty fs
       where run s (L _ f) = getBV (hsRecFieldArg f) `Set.union` s
 
+#if __GLASGOW_HASKELL__ >= 900
+instance HasBV CoPat where
+  getBV CoPat {co_pat_inner = p} = getBV p
+#endif
+
 instance HasBV (Pat GhcTc) where
   getBV (VarPat _ (L _ v)) = Set.singleton v
   getBV (LazyPat _ p) = getBV p
@@ -104,8 +117,13 @@ instance HasBV (Pat GhcTc) where
   getBV (ListPat _ ps) = getBV ps
   getBV (TuplePat _ ps _) = getBV ps
   getBV (SumPat _ p _ _) = getBV p
+#if __GLASGOW_HASKELL__ >= 900
+  getBV (ConPat {pat_args = con}) = getConBV con
+#else
   getBV (ConPatIn (L _ v) con) = Set.insert v (getConBV con)
   getBV (ConPatOut {pat_args = con}) = getConBV con
+  getBV (CoPat _ _ p _) = getBV p
+#endif
   getBV (ViewPat _ _ p) = getBV p
   getBV (SplicePat _ sp) =
     case sp of
@@ -115,7 +133,6 @@ instance HasBV (Pat GhcTc) where
       HsSpliced _ _ (HsSplicedPat p) -> getBV p
       _ -> Set.empty
   getBV (NPlusKPat _ (L _ v) _ _ _ _) = Set.singleton v
-  getBV (CoPat _ _ p _) = getBV p
   getBV (NPat {}) = Set.empty
   getBV (XPat p) = getBV p
   getBV (WildPat {}) = Set.empty
@@ -158,32 +175,45 @@ instance HasFV Var where
 
 instance HasFV a => HasFV (MatchGroup GhcTc a) where
   getFV MG {mg_alts = alts} = getFV alts
-  getFV XMatchGroup{} = Set.empty
-
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XMatchGroup e) = getFV e
+#endif
+  
 instance HasFV a => HasFV (Match GhcTc a) where
   getFV Match {m_grhss = rhss} = getFV rhss
-  getFV XMatch{} = Set.empty
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XMatch e) = getFV e
+#endif
 
 instance HasFV (HsTupArg GhcTc) where
   getFV (Present _ e) = getFV e
-  getFV _ = Set.empty
-
+  getFV Missing {} = Set.empty
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XTupArg e) = getFV e
+#endif
 
 instance HasFV a => HasFV (GRHS GhcTc a) where
   getFV (GRHS _ g b) = getFV g `Set.union` getFV b
-  getFV XGRHS{} = Set.empty
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XGRHS e) = getFV e
+#endif
 
 instance HasFV a => HasFV (GRHSs GhcTc a) where
   getFV GRHSs {grhssGRHSs = rhs, grhssLocalBinds = lbs} =
     getFV rhs `Set.union` getFV lbs
-  getFV _ = Set.empty
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XGRHSs e) = getFV e
+#endif
 
 
 instance HasFV (HsLocalBindsLR GhcTc GhcTc) where
   getFV (HsValBinds _ bs) = getFV bs
   getFV (HsIPBinds _ bs) = getFV bs
-  getFV _ = Set.empty
-
+  getFV EmptyLocalBinds {} = Set.empty
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XHsLocalBindsLR e) = getFV
+#endif
+  
 instance HasFV (HsValBindsLR GhcTc GhcTc) where
   getFV (ValBinds _ b _) = getFV b
   getFV (XValBindsLR b) = getFV b
@@ -196,41 +226,57 @@ instance HasFV (HsBindLR GhcTc GhcTc) where
   getFV PatBind {pat_rhs = rhs} = getFV rhs
   getFV VarBind {var_rhs = rhs} = getFV rhs
   getFV AbsBinds {abs_binds = bs} = getFV bs
-  getFV _ = Set.empty
-
+  getFV PatSynBind {} = Set.empty
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XHsBindsLR e) = getFV e
+#endif
 
 instance HasFV (IPBind GhcTc) where
   getFV (IPBind _ _ e) = getFV e
-  getFV _ = Set.empty
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XIPBind e) = getFV e
+#endif
 
 instance HasFV (HsIPBinds GhcTc) where
   getFV (IPBinds _ bs) = getFV bs
-  getFV _ = Set.empty
-
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XHsIPBinds e) = getFV e
+#endif
+  
 instance HasFV (ApplicativeArg GhcTc) where
 #if __GLASGOW_HASKELL__ >= 810
-  getFV (ApplicativeArgOne _ _ e _ _)
+  getFV ApplicativeArgOne { arg_expr = e }     = getFV e
+  getFV ApplicativeArgMany {app_stmts = es, final_expr = e} = getFV es `Set.union` getFV e
 #else
-  getFV (ApplicativeArgOne _ _ e _)
-#endif
-    = getFV e
+  getFV (ApplicativeArgOne _ _ e _) = getFV e
   getFV (ApplicativeArgMany _ es e _) = getFV es `Set.union` getFV e
-  getFV XApplicativeArg{} = Set.empty
+#endif
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XApplicativeArg e) = getFV e
+#endif
 
 instance HasFV (ParStmtBlock GhcTc GhcTc) where
   getFV (ParStmtBlock _ es _ _) = getFV es
-  getFV XParStmtBlock{} = Set.empty
-
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XParStmtBlock e) = getFV e
+#endif
+  
 instance HasFV a => HasFV (StmtLR GhcTc GhcTc a) where
   getFV (LastStmt _ e _ _) = getFV e
+#if __GLASGOW_HASKELL__ >= 900
+  getFV (BindStmt _ _ e) = getFV e
+#else
   getFV (BindStmt _ _ e _ _) = getFV e
+#endif
   getFV (ApplicativeStmt _ args _) = foldMap (getFV . snd) args
   getFV (BodyStmt _ e _ _) = getFV e
   getFV (LetStmt _ bs) = getFV bs
   getFV (ParStmt _ stms e _) = getFV stms `Set.union` getFV e
   getFV TransStmt{} = Set.empty -- TODO
   getFV RecStmt{} = Set.empty -- TODO
-  getFV XStmtLR{} = Set.empty
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XStmtLR e) = getFV e
+#endif
 
 instance HasFV (HsRecordBinds GhcTc) where
   getFV HsRecFields{rec_flds = fs} = getFV fs
@@ -259,13 +305,19 @@ instance HasFV (HsCmd GhcTc) where
   getFV (HsCmdIf _ _ e1 e2 e3) = getFV e1 `Set.union` getFV e2 `Set.union` getFV e3
   getFV (HsCmdLet _ bs _) = getFV bs
   getFV (HsCmdDo _ cmd) = getFV cmd
+#if __GLASGOW_HASKELL__ >= 900
+  getFV (HsCmdLamCase _ mg) = getFV mg
+#else
   getFV (HsCmdWrap _ _ cmd) = getFV cmd
-  getFV XCmd{} = Set.empty
+#endif
+  getFV (XCmd e) = getFV e
   
 
 instance HasFV (HsCmdTop GhcTc) where
   getFV (HsCmdTop _ cmd) = getFV cmd
-  getFV XCmdTop{} = Set.empty
+#if __GLASGOW_HASKELL__ < 900
+  getFV (XCmdTop e) = getFV e
+#endif
 
 instance HasFV (HsExpr GhcTc) where
   getFV (HsVar _ v) = getFV v
@@ -295,7 +347,11 @@ instance HasFV (HsExpr GhcTc) where
   getFV (ExplicitTuple _ es _) = getFV es
   getFV (ExplicitSum _ _ _ e) = getFV e
   getFV (HsCase _ e mg) = getFV e  `Set.union` getFV mg
+#if __GLASGOW_HASKELL__ >= 900
+  getFV (HsIf _ e1 e2 e3) = getFV e1 `Set.union` getFV e2 `Set.union` getFV e3
+#else
   getFV (HsIf _ _ e1 e2 e3) = getFV e1 `Set.union` getFV e2 `Set.union` getFV e3
+#endif
   getFV (HsMultiIf _ es) = getFV es
   getFV (HsLet _ bs e) = getFV bs `Set.union` getFV e
   getFV (HsDo _ _ e) = getFV e
@@ -311,8 +367,15 @@ instance HasFV (HsExpr GhcTc) where
     = getFV e
 
   getFV (ArithSeq _ _ e) = getFV e
+#if __GLASGOW_HASKELL__ < 900
   getFV (HsSCC _ _ _ e) = getFV e
   getFV (HsCoreAnn _ _ _ e) = getFV e
+  getFV (HsTickPragma _ _ _ _ e) = getFV e
+  getFV (HsWrap _ _ e) = getFV e
+#else
+  getFV (HsPragE _ _ e) = getFV e
+#endif
+
   getFV (HsBracket _ e) = getFV e
   getFV HsRnBracketOut {} = Set.empty
   getFV HsTcBracketOut {} = Set.empty
@@ -331,7 +394,17 @@ instance HasFV (HsExpr GhcTc) where
   
   getFV (HsTick _ _ e) = getFV e
   getFV (HsBinTick _ _ _ e) = getFV e
-  getFV (HsTickPragma _ _ _ _ e) = getFV e
-  getFV (HsWrap _ _ e) = getFV e
-  getFV XExpr{} = Set.empty
+  getFV (XExpr e) = getFV e
 
+
+#if __GLASGOW_HASKELL__ >= 900
+instance HasFV XXExprGhcTc where
+  getFV (WrapExpr e) = getFV e
+  getFV (ExpansionExpr (HsExpanded _e1 e2)) = getFV e2
+
+instance HasFV (e GhcTc) => HasFV (HsWrap e) where
+  getFV (HsWrap _ e) = getFV e
+#endif
+
+instance HasFV NoExtCon where
+  getFV _ = Set.empty
