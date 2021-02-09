@@ -23,15 +23,15 @@ import Data.IORef
 
 import Prelude hiding ((<>))
 
-import GHC.Tc.Types.Evidence
-
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Plugins
 import GHC.Tc.Types
 import GHC.Data.Bag
+import GHC.Tc.Types.Evidence
 #else
 import GhcPlugins
 import TcRnTypes
+import TcEvidence
 import Bag
 #endif
 
@@ -488,16 +488,17 @@ instance Scope (HsExpr GhcTc) where
     where mod c = addVars (getBV p) (stabilize StableArr c)
   check (HsStatic _ e) = check e
   check (HsDo _ _ e) = fst <$> checkBind e
-#if __GLASGOW_HASKELL__ < 900
+  check (XExpr e) = check e
+#if __GLASGOW_HASKELL__ >= 900
+  check (HsPragE _ _ e) = check e
+  check (HsIf _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
+#else
   check (HsSCC _ _ _ e) = check e
   check (HsCoreAnn _ _ _ e) = check e
   check (HsTickPragma _ _ _ _ e) = check e
   check (HsWrap _ _ e) = check e
   check (HsIf _ _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
 #endif
-  check (XExpr e) = check e
-  check (HsPragE _ _ e) = check e
-  check (HsIf _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
 #if __GLASGOW_HASKELL__ < 810
   check HsArrApp{} = impossible
   check HsArrForm{} = impossible
@@ -514,6 +515,12 @@ impossible = printMessageCheck SevError "This syntax should never occur after ty
 instance Scope XXExprGhcTc where
   check (WrapExpr (HsWrap _ e)) = check e
   check (ExpansionExpr (HsExpanded _ e)) = check e
+#elif __GLASGOW_HASKELL__ >= 810
+instance Scope NoExtCon where
+  check _ = return True
+#else
+instance Scope NoExt where
+  check _ = return True
 #endif
 
 instance Scope (HsCmdTop GhcTc) where
@@ -562,12 +569,18 @@ instance Scope (HsTupArg GhcTc) where
 #if __GLASGOW_HASKELL__ < 900
   check XTupArg{} = return True
 #endif
-  
+
 instance Scope (HsBindLR GhcTc GhcTc) where
   check AbsBinds {abs_binds = binds, abs_ev_vars  = ev} = mod `modifyCtxt` check binds
     where mod c = c { stableTypes= stableTypes c `Set.union`
                       Set.fromList (mapMaybe (isStableConstr . varType) ev)}
-  check FunBind{fun_matches= matches, fun_id = L _ v, fun_ext = wrapper} = mod `modifyCtxt` check matches
+  check FunBind{fun_matches= matches, fun_id = L _ v,
+#if __GLASGOW_HASKELL__ >= 900
+                fun_ext = wrapper} =
+#else
+                fun_co_fn = wrapper} =
+#endif
+      mod `modifyCtxt` check matches
     where mod c = c { stableTypes= stableTypes c `Set.union`
                       Set.fromList (stableConstrFromWrapper wrapper)  `Set.union`
                       Set.fromList (extractStableConstr (varType v))}
@@ -705,16 +718,17 @@ isPrimExpr :: GetCtxt => LHsExpr GhcTc -> Maybe (Prim,Var)
 isPrimExpr (L _ e) = isPrimExpr' e where
   isPrimExpr' :: GetCtxt => HsExpr GhcTc -> Maybe (Prim,Var)
   isPrimExpr' (HsVar _ (L _ v)) = fmap (,v) (isPrim v)
-  
 #if __GLASGOW_HASKELL__ >= 808
   isPrimExpr' (HsAppType _ e _) = isPrimExpr e
 #else
   isPrimExpr' (HsAppType _ e)   = isPrimExpr e
 #endif
+
 #if __GLASGOW_HASKELL__ < 900
   isPrimExpr' (HsSCC _ _ _ e) = isPrimExpr e
   isPrimExpr' (HsCoreAnn _ _ _ e) = isPrimExpr e
   isPrimExpr' (HsTickPragma _ _ _ _ e) = isPrimExpr e
+  isPrimExpr' (HsWrap _ _ e) = isPrimExpr' e
 #else
   isPrimExpr' (XExpr (WrapExpr (HsWrap _ e))) = isPrimExpr' e
   isPrimExpr' (XExpr (ExpansionExpr (HsExpanded _ e))) = isPrimExpr' e

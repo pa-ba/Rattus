@@ -211,7 +211,7 @@ instance HasFV (HsLocalBindsLR GhcTc GhcTc) where
   getFV (HsIPBinds _ bs) = getFV bs
   getFV EmptyLocalBinds {} = Set.empty
 #if __GLASGOW_HASKELL__ < 900
-  getFV (XHsLocalBindsLR e) = getFV
+  getFV (XHsLocalBindsLR e) = getFV e
 #endif
   
 instance HasFV (HsValBindsLR GhcTc GhcTc) where
@@ -404,7 +404,10 @@ instance HasFV XXExprGhcTc where
 
 instance HasFV (e GhcTc) => HasFV (HsWrap e) where
   getFV (HsWrap _ e) = getFV e
-#endif
-
+#elif __GLASGOW_HASKELL__ >= 810
 instance HasFV NoExtCon where
   getFV _ = Set.empty
+#else
+instance HasFV NoExt where
+  getFV _ = Set.empty
+#endif
