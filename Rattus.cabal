@@ -146,11 +146,11 @@ library
                        Rattus.Plugin
                        Rattus.Arrow
                        Rattus.Primitives
-                       
+                       Rattus.Plugin.Annotation
+                                              
   other-modules:       Rattus.Plugin.ScopeCheck
                        Rattus.Plugin.SingleTick
                        Rattus.Plugin.CheckSingleTick
-                       Rattus.Plugin.Annotation
                        Rattus.Plugin.Strictify
                        Rattus.Plugin.Utils
                        Rattus.Plugin.Dependency

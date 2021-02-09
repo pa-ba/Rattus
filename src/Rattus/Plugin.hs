@@ -113,7 +113,8 @@ allowLazyData guts bndr = do
 shouldTransform :: ModGuts -> CoreBndr -> CoreM Bool
 shouldTransform guts bndr = do
   l <- annotationsOn guts bndr :: CoreM [Rattus]
-  return (Rattus `elem` l && not (NotRattus `elem` l) && userFunction bndr)
+  l' <- annotationsOn guts bndr :: CoreM [InternalAnn]
+  return ((Rattus `elem` l && not (NotRattus `elem` l) && userFunction bndr) && not (ExpectError `elem` l'))
 
 annotationsOn :: (Data a) => ModGuts -> CoreBndr -> CoreM [a]
 annotationsOn guts bndr = do

@@ -6,13 +6,14 @@ module Main (module Main) where
 import Rattus
 import Rattus.Stream as S
 import Prelude
+import Rattus.Plugin.Annotation (InternalAnn (..))
 
 -- All of these examples should typecheck with the more relaxed typing
 -- rules of Rattus that allows functions and delays under tick.
 
 {-# ANN module Rattus #-}
 
-
+{-# ANN recBox ExpectWarning #-}
 recBox :: Str Int
 recBox = 0 ::: unbox (box (delay recBox))
 
@@ -45,6 +46,7 @@ sneakyLambdaUnderDelay = delay (let f x = x in f)
 leaky :: (() -> Bool) -> Str Bool
 leaky p = p () ::: delay (leaky (\ _ -> hd (leaky (\ _ -> True))))
 
+{-# ANN zeros ExpectWarning #-}
 zeros :: Box (Str Int)
 zeros = box (0 ::: delay (unbox zeros))
 
@@ -56,6 +58,7 @@ data FStr a = Cons !a !(O (a -> O (FStr a)))
 recFun :: Int -> FStr Int 
 recFun n = Cons n (delay (\ x -> delay (recFun x)))
 
+{-# ANN nestedRec ExpectWarning #-}
 nestedRec :: Str Int
 nestedRec = run 10
   where run :: Int -> Str Int

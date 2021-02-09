@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
-module Rattus.Plugin.Annotation (Rattus(..)) where
+module Rattus.Plugin.Annotation (Rattus(..), InternalAnn (..)) where
 
 import Data.Data
 
@@ -28,3 +28,7 @@ import Data.Data
 -- > {-# ANN module AllowLazyData #-}
 
 data Rattus = Rattus | NotRattus | AllowLazyData deriving (Typeable, Data, Show, Eq)
+
+
+-- | This annotation type is for internal use only.
+data InternalAnn = ExpectError | ExpectWarning deriving (Typeable, Data, Show, Eq, Ord)

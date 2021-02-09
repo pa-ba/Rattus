@@ -5,6 +5,7 @@ module Main (module Main) where
 import Rattus
 import Rattus.Stream as Str
 import Rattus.ToHaskell
+import Rattus.Plugin.Annotation (InternalAnn (..))
 
 {-# ANN module Rattus #-}
 
@@ -19,14 +20,13 @@ nats = from  0
     where from :: Int -> Str Int
           from n = n ::: delay (from (n+1))
 
--- This function should cause a warning.
+  -- This function should cause a warning.
+{-# ANN leakyNats ExpectWarning #-}
 leakyNats :: Str Int
 leakyNats = 0 ::: delay (Str.map (box (+1)) leakyNats)
 
 inc :: Str Int -> Str Int
 inc = Str.map (box ((+)1))
-
--- This function should cause a warning.
 
 leakyNats' :: Str Int
 leakyNats' = 0 ::: delay (inc leakyNats')
@@ -37,21 +37,22 @@ altMap :: Box (a -> b) -> Box (a -> b) -> Str a -> Str b
 altMap f g (x ::: xs) = unbox f x ::: delay (altMap g f (adv xs))
 
 -- This function should cause a warning.
+{-# ANN leakyAlt ExpectWarning #-}
 leakyAlt :: Str Int
 leakyAlt = 0 ::: delay (altMap (box ((+)1)) (box ((+)2)) leakyAlt)
 
-
--- This function should cause a warning.
 mapMap :: Box (a -> a) -> Box (a -> a) -> Str a -> Str a
 mapMap f g (x ::: xs) = unbox f x ::: delay (Str.map g (mapMap g f (adv xs)))
 
 -- This function should cause a warning.
+{-# ANN leakyMap ExpectWarning #-}
 leakyMap :: Str Int
 leakyMap = 0 ::: delay (mapMap (box ((+)1)) (box ((+)2)) leakyMap)
 
 
 
 -- This function should cause a warning.
+{-# ANN boxLeaky ExpectWarning #-}
 boxLeaky :: Str Int
 boxLeaky = run (box (\() -> 1)) 1
   where run :: Box (() -> Int) -> Int -> Str Int
@@ -59,16 +60,19 @@ boxLeaky = run (box (\() -> 1)) 1
                   ::: delay (run (box (\ () -> (unbox f () + 1))) a)
 
 -- This function should cause a warning.
+{-# ANN boxLeaky' ExpectWarning #-}
 boxLeaky' :: Str Int -> Str Int
 boxLeaky' = run (box (\() -> 1)) 1
   where run :: Box (() -> Int) -> Int -> Str Int -> Str Int
         run f a (x ::: xs) = (if a == 0 then unbox f () else a) ::: delay (run (box (\ () -> (unbox f () + x))) a (adv xs))
 
 -- This function should cause a warning.
+{-# ANN natsTrans ExpectWarning #-}
 natsTrans :: Str Int -> Str Int
 natsTrans (x ::: xs) = x ::: delay (Str.map (box ((+)x)) $ natsTrans $ adv xs)
 
 -- This function should cause a warning.
+{-# ANN leakySum ExpectWarning #-}
 leakySum :: Box (Int -> Int) -> Str Int -> Str Int
 leakySum f (x ::: xs) = unbox f x ::: (delay (leakySum (box (\ y -> unbox f (y + x)))) <#> xs)
 

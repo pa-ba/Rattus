@@ -25,7 +25,7 @@ test1 = scan3 (box (+)) (box (== 0))
 -- If we Haskell's (lazy) pair types, we get a memory leak:
 
 type Lazy a = ((),a)
-
+{-# ANN leakyLazy AllowLazyData #-}
 leakyLazy :: Str (Lazy Int) -> Str (Lazy Int)
 leakyLazy ((_,x):::xs) = ((),1) ::: delay (leakyLazy  (fmap ((+) x) (hd (adv xs)) ::: (tl (adv xs))))
 

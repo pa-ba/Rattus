@@ -181,11 +181,10 @@ checkAll :: TcGblEnv -> TcM ()
 checkAll env = do
   let dep = dependency (tcg_binds env)
   let bindDep = filter (filterBinds (tcg_mod env) (tcg_ann_env env)) dep
-  err <- liftIO (newIORef [])
-  res <- mapM (checkSCC err) bindDep
-  msgs <- liftIO (readIORef err)
+  result <- mapM (checkSCC' (tcg_mod env) (tcg_ann_env env)) bindDep
+  let (res,msgs) = foldl' (\(b,l) (b',l') -> (b && b', l ++ l')) (True,[]) result
   printAccErrMsgs msgs
-  if and res then return () else liftIO exitFailure
+  if res then return () else liftIO exitFailure
 
 
 printAccErrMsgs :: [ErrorMsg] -> TcM ()
@@ -623,6 +622,46 @@ extractStableConstr  = mapMaybe isStableConstr . map irrelevantMult . fst . spli
 #else
 extractStableConstr  = mapMaybe isStableConstr . fst . splitFunTys . snd . splitForAllTys
 #endif
+
+
+getSCCLoc :: SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> SrcSpan
+getSCCLoc (AcyclicSCC (L l _ ,_)) = l
+getSCCLoc (CyclicSCC ((L l _,_ ) : _)) = l
+getSCCLoc _ = noLocationInfo
+
+
+checkSCC' ::  Module -> AnnEnv -> SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> TcM (Bool, [ErrorMsg])
+checkSCC' mod anEnv scc = do
+  err <- liftIO (newIORef [])
+  res <- checkSCC err scc
+  msgs <- liftIO (readIORef err)
+  let anns = getInternalAnn mod anEnv scc
+  if ExpectWarning `Set.member` anns 
+    then if ExpectError `Set.member` anns
+         then return (False,[(SevError, getSCCLoc scc, "Annotation to expect both warning and error is not allowed.")])
+         else if any (\(s,_,_) -> case s of SevWarning -> True; _ -> False) msgs
+              then return (res, filter (\(s,_,_) -> case s of SevWarning -> False; _ -> True) msgs)
+              else return (False,[(SevError, getSCCLoc scc, "Warning was expected, but typechecking produced no warning.")])
+    else if ExpectError `Set.member` anns
+         then if res
+              then return (False,[(SevError, getSCCLoc scc, "Error was expected, but typechecking produced no error.")])
+              else return (True,[])
+         else return (res, msgs)
+
+
+getInternalAnn :: Module -> AnnEnv -> SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> Set InternalAnn
+getInternalAnn mod anEnv scc =
+  case scc of
+    (AcyclicSCC (_,vs)) -> Set.unions $ Set.map checkVar vs
+    (CyclicSCC bs) -> Set.unions $ map (Set.unions . Set.map checkVar . snd) bs
+  where checkVar :: Var -> Set InternalAnn
+        checkVar v =
+          let anns = findAnns deserializeWithData anEnv (NamedTarget name) :: [InternalAnn]
+              annsMod = findAnns deserializeWithData anEnv (ModuleTarget mod) :: [InternalAnn]
+              name :: Name
+              name = varName v
+          in Set.fromList anns `Set.union` Set.fromList annsMod
+
 
 
 -- | Checks a top-level definition group, which is either a single
