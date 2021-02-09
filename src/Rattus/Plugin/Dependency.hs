@@ -117,13 +117,6 @@ instance HasBV (Pat GhcTc) where
   getBV (ListPat _ ps) = getBV ps
   getBV (TuplePat _ ps _) = getBV ps
   getBV (SumPat _ p _ _) = getBV p
-#if __GLASGOW_HASKELL__ >= 900
-  getBV (ConPat {pat_args = con}) = getConBV con
-#else
-  getBV (ConPatIn (L _ v) con) = Set.insert v (getConBV con)
-  getBV (ConPatOut {pat_args = con}) = getConBV con
-  getBV (CoPat _ _ p _) = getBV p
-#endif
   getBV (ViewPat _ _ p) = getBV p
   getBV (SplicePat _ sp) =
     case sp of
@@ -137,13 +130,19 @@ instance HasBV (Pat GhcTc) where
   getBV (XPat p) = getBV p
   getBV (WildPat {}) = Set.empty
   getBV (LitPat {}) = Set.empty
-
-#if __GLASGOW_HASKELL__ >= 808
-  getBV (SigPat _ p _) =
+#if __GLASGOW_HASKELL__ >= 900
+  getBV (ConPat {pat_args = con}) = getConBV con
 #else
-  getBV (SigPat _ p) =
+  getBV (ConPatIn (L _ v) con) = Set.insert v (getConBV con)
+  getBV (ConPatOut {pat_args = con}) = getConBV con
+  getBV (CoPat _ _ p _) = getBV p
 #endif
-    getBV p
+#if __GLASGOW_HASKELL__ >= 808
+  getBV (SigPat _ p _) = getBV p
+#else
+  getBV (SigPat _ p)   = getBV p
+#endif
+
 
 #if __GLASGOW_HASKELL__ >= 810
 instance HasBV NoExtCon where
@@ -330,15 +329,7 @@ instance HasFV (HsExpr GhcTc) where
   getFV HsLit {} = Set.empty
   getFV (HsLam _ mg) = getFV mg
   getFV (HsLamCase _ mg) = getFV mg
-  getFV (HsApp _ e1 e2) = getFV e1 `Set.union` getFV e2
-
-#if __GLASGOW_HASKELL__ >= 808
-  getFV (HsAppType _ e _)
-#else
-  getFV (HsAppType _ e)
-#endif
-    = getFV e
-      
+  getFV (HsApp _ e1 e2) = getFV e1 `Set.union` getFV e2      
   getFV (OpApp _ e1 e2 e3) = getFV e1 `Set.union` getFV e2 `Set.union` getFV e3
   getFV (NegApp _ e _) = getFV e
   getFV (HsPar _ e) = getFV e
@@ -347,41 +338,41 @@ instance HasFV (HsExpr GhcTc) where
   getFV (ExplicitTuple _ es _) = getFV es
   getFV (ExplicitSum _ _ _ e) = getFV e
   getFV (HsCase _ e mg) = getFV e  `Set.union` getFV mg
-#if __GLASGOW_HASKELL__ >= 900
-  getFV (HsIf _ e1 e2 e3) = getFV e1 `Set.union` getFV e2 `Set.union` getFV e3
-#else
-  getFV (HsIf _ _ e1 e2 e3) = getFV e1 `Set.union` getFV e2 `Set.union` getFV e3
-#endif
   getFV (HsMultiIf _ es) = getFV es
   getFV (HsLet _ bs e) = getFV bs `Set.union` getFV e
   getFV (HsDo _ _ e) = getFV e
   getFV (ExplicitList _ _ es) = getFV es
   getFV (RecordCon {rcon_flds = fs}) = getFV fs
   getFV (RecordUpd {rupd_expr = e, rupd_flds = fs}) = getFV e `Set.union` getFV fs
-
-#if __GLASGOW_HASKELL__ >= 808
-  getFV (ExprWithTySig _ e _)
-#else
-  getFV (ExprWithTySig _ e)
-#endif
-    = getFV e
-
   getFV (ArithSeq _ _ e) = getFV e
-#if __GLASGOW_HASKELL__ < 900
-  getFV (HsSCC _ _ _ e) = getFV e
-  getFV (HsCoreAnn _ _ _ e) = getFV e
-  getFV (HsTickPragma _ _ _ _ e) = getFV e
-  getFV (HsWrap _ _ e) = getFV e
-#else
-  getFV (HsPragE _ _ e) = getFV e
-#endif
-
   getFV (HsBracket _ e) = getFV e
   getFV HsRnBracketOut {} = Set.empty
   getFV HsTcBracketOut {} = Set.empty
   getFV HsSpliceE{} = Set.empty
   getFV (HsProc _ _ e) = getFV e
-  getFV (HsStatic _ e) = getFV e
+  getFV (HsStatic _ e) = getFV e  
+  getFV (HsTick _ _ e) = getFV e
+  getFV (HsBinTick _ _ _ e) = getFV e
+  getFV (XExpr e) = getFV e
+  
+#if __GLASGOW_HASKELL__ >= 808
+  getFV (HsAppType _ e _) = getFV e
+  getFV (ExprWithTySig _ e _) = getFV e  
+#else
+  getFV (ExprWithTySig _ e)   = getFV e
+  getFV (HsAppType _ e)   = getFV e
+#endif
+
+#if __GLASGOW_HASKELL__ >= 900
+  getFV (HsIf _ e1 e2 e3) = getFV e1 `Set.union` getFV e2 `Set.union` getFV e3
+  getFV (HsPragE _ _ e) = getFV e
+#else
+  getFV (HsIf _ _ e1 e2 e3) = getFV e1 `Set.union` getFV e2 `Set.union` getFV e3
+  getFV (HsSCC _ _ _ e) = getFV e
+  getFV (HsCoreAnn _ _ _ e) = getFV e
+  getFV (HsTickPragma _ _ _ _ e) = getFV e
+  getFV (HsWrap _ _ e) = getFV e
+#endif
 
 #if __GLASGOW_HASKELL__ < 810  
   getFV (HsArrApp _ e1 e2 _ _) = getFV e1 `Set.union` getFV e2
@@ -391,10 +382,6 @@ instance HasFV (HsExpr GhcTc) where
   getFV (EViewPat _ e1 e2) = getFV e1 `Set.union` getFV e2
   getFV (ELazyPat _ e) = getFV e
 #endif
-  
-  getFV (HsTick _ _ e) = getFV e
-  getFV (HsBinTick _ _ _ e) = getFV e
-  getFV (XExpr e) = getFV e
 
 
 #if __GLASGOW_HASKELL__ >= 900

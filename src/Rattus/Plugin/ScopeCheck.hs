@@ -441,16 +441,7 @@ instance Scope (HsExpr GhcTc) where
   check HsRecFld{} = return True
   check HsOverLabel{} = return True
   check HsIPVar{} = notSupported "implicit parameters"
-  check HsOverLit{} = return True
-
-  
-#if __GLASGOW_HASKELL__ >= 808
-  check (HsAppType _ e _)
-#else
-  check (HsAppType _ e)
-#endif
-    = check e
-  
+  check HsOverLit{} = return True  
   check (HsTick _ _ e) = check e
   check (HsBinTick _ _ _ e) = check e  
   check (HsPar _ e) = check e
@@ -472,12 +463,6 @@ instance Scope (HsExpr GhcTc) where
   check (ExplicitList _ _ e) = check e
   check RecordCon { rcon_flds = f} = check f
   check RecordUpd { rupd_expr = e, rupd_flds = fs} = (&&) <$> check e <*> check fs
-#if __GLASGOW_HASKELL__ >= 808
-  check (ExprWithTySig _ e _)
-#else
-  check (ExprWithTySig _ e)
-#endif
-    = check e
   check (ArithSeq _ _ e) = check e
   check HsBracket{} = notSupported "MetaHaskell"
   check HsRnBracketOut{} = notSupported "MetaHaskell"
@@ -488,6 +473,14 @@ instance Scope (HsExpr GhcTc) where
   check (HsStatic _ e) = check e
   check (HsDo _ _ e) = fst <$> checkBind e
   check (XExpr e) = check e
+#if __GLASGOW_HASKELL__ >= 808
+  check (HsAppType _ e _) = check e
+  check (ExprWithTySig _ e _) = check e
+#else
+  check (HsAppType _ e)  = check e
+  check (ExprWithTySig _ e) = check e
+#endif
+
 #if __GLASGOW_HASKELL__ >= 900
   check (HsPragE _ _ e) = check e
   check (HsIf _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
