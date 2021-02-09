@@ -30,7 +30,6 @@ import ErrUtils
 import MonadUtils
 #endif
 
-
 import Prelude hiding ((<>))
 
 import Data.Set (Set)

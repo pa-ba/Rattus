@@ -51,7 +51,7 @@ zeros = box (0 ::: delay (unbox zeros))
 oneTwo :: Str Int
 oneTwo = 1 ::: delay (2 ::: delay oneTwo)
 
-data FStr a = Cons ! a ! (O (a -> O (FStr a)))
+data FStr a = Cons !a !(O (a -> O (FStr a)))
 
 recFun :: Int -> FStr Int 
 recFun n = Cons n (delay (\ x -> delay (recFun x)))

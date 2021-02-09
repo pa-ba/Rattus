@@ -23,6 +23,8 @@ import Data.IORef
 
 import Prelude hiding ((<>))
 
+import GHC.Tc.Types.Evidence
+
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Plugins
 import GHC.Tc.Types
@@ -565,8 +567,9 @@ instance Scope (HsBindLR GhcTc GhcTc) where
   check AbsBinds {abs_binds = binds, abs_ev_vars  = ev} = mod `modifyCtxt` check binds
     where mod c = c { stableTypes= stableTypes c `Set.union`
                       Set.fromList (mapMaybe (isStableConstr . varType) ev)}
-  check FunBind{fun_matches= matches, fun_id = L _ v} = mod `modifyCtxt` check matches
+  check FunBind{fun_matches= matches, fun_id = L _ v, fun_ext = wrapper} = mod `modifyCtxt` check matches
     where mod c = c { stableTypes= stableTypes c `Set.union`
+                      Set.fromList (stableConstrFromWrapper wrapper)  `Set.union`
                       Set.fromList (extractStableConstr (varType v))}
   check PatBind{pat_lhs = lhs, pat_rhs=rhs} = addVars (getBV lhs) `modifyCtxt` check rhs
   check VarBind{var_rhs = rhs} = check rhs
@@ -590,6 +593,12 @@ isStableConstr t =
           else Nothing
         _ -> Nothing                           
     _ ->  Nothing
+
+
+stableConstrFromWrapper :: HsWrapper -> [TyVar]
+stableConstrFromWrapper (WpCompose v w) = stableConstrFromWrapper v ++ stableConstrFromWrapper w
+stableConstrFromWrapper (WpEvLam v) = maybeToList $ isStableConstr (varType v)
+stableConstrFromWrapper _ = []
 
 
 -- | Given a type @(C1, ... Cn) => t@, this function returns the list

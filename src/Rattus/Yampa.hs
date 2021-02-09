@@ -46,7 +46,7 @@ type DTime = Double
 -- | Signal functions from inputs of type @a@ to outputs of type @b@.
 data SF a b = SF{
   -- | Run a signal function for one step.
-  stepSF :: ! (DTime -> a -> (O(SF a b) :* b))}
+  stepSF :: !(DTime -> a -> (O(SF a b) :* b))}
 
 -- | The identity signal function that does nothing.
 identity :: SF a a
