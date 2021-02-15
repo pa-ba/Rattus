@@ -1,3 +1,16 @@
+0.5
+---
+
+The typing rules for delay, functions, and guarded recursion have been
+simplified and generalised. Instead of just one tick, Rattus now
+allows an arbitrary number of ticks as well as function definitions in
+the scope of ticks. In practical terms, this means the following:
+
+- As before, delays can be nested arbitrarily and function definitions
+  may occur under arbitrarily many delays.
+- But now the scope of a delay is no longer interrupted by a nested
+  delay or function definition.
+
 0.4
 ---
 
