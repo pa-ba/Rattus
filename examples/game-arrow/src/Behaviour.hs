@@ -10,7 +10,7 @@ import Rattus
 import Rattus.Yampa
 import Prelude hiding ((<*>),zip,map,scan,zipWith)
 
-data Input = Input {reset :: ! Bool, move :: ! Move}
+data Input = Input {reset :: !Bool, move :: !Move}
 data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove deriving Eq
 
 {-# ANN module Rattus #-}

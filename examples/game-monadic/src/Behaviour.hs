@@ -16,7 +16,7 @@ import Prelude hiding ((<*>),zip,map,zipWith)
 import Control.Eff.Reader.Strict
 import Control.Eff
 
-data Input = Input {reset :: ! Bool, move :: ! Move, time :: !Float}
+data Input = Input {reset :: !Bool, move :: !Move, time :: !Float}
 data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove
 
 {-# ANN module Rattus #-}

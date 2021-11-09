@@ -8,7 +8,7 @@ import Rattus.Event hiding (map)
 import Prelude hiding ((<*>),zip,map,scan,zipWith)
 
 
-data Input = Input {reset :: ! Bool, move :: ! Move, time :: !Float}
+data Input = Input {reset :: !Bool, move :: !Move, time :: !Float}
 data Move = StartLeft | EndLeft | StartRight | EndRight | NoMove
 
 {-# ANN module Rattus #-}

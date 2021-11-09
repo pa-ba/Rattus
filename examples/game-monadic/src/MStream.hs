@@ -22,7 +22,7 @@ import Prelude hiding (map, const, zipWith, zip, filter)
 import Data.VectorSpace
 
 -- | @MStr a@ is a stream of values of type @a@.
-data MStr m a = MStr ! (m (a :* (O (MStr m a))))
+data MStr m a = MStr !(m (a :* (O (MStr m a))))
 
 type EStr r = MStr (Eff r)
 
