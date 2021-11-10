@@ -17,8 +17,14 @@ module Rattus.Plugin.Utils (
   mkSysLocalFromVar,
   mkSysLocalFromExpr,
   fromRealSrcSpan,
-  noLocationInfo)
+  noLocationInfo,
+  mkAlt,
+  getAlt,
+  splitForAllTys')
   where
+#if __GLASGOW_HASKELL__ >= 902
+import GHC.Utils.Logger
+#endif
 
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Plugins
@@ -44,11 +50,19 @@ isType (Tick _ e) = isType e
 isType _ = False
 
 
-
+#if __GLASGOW_HASKELL__ >= 902
+printMessage :: (HasDynFlags m, MonadIO m, HasLogger m) =>
+                Severity -> SrcSpan -> SDoc -> m ()
+#else
 printMessage :: (HasDynFlags m, MonadIO m) =>
                 Severity -> SrcSpan -> MsgDoc -> m ()
+#endif
 printMessage sev loc doc = do
-#if __GLASGOW_HASKELL__ >= 900  
+#if __GLASGOW_HASKELL__ >= 902
+  dflags <- getDynFlags
+  logger <- getLogger
+  liftIO $ putLogMsg logger dflags NoReason sev loc doc
+#elif __GLASGOW_HASKELL__ >= 900  
   dflags <- getDynFlags
   liftIO $ putLogMsg dflags NoReason sev loc doc
 #else
@@ -61,7 +75,10 @@ printMessage sev loc doc = do
   liftIO $ putLogMsg dflags NoReason sev loc sty doc
 #endif
 
-
+#if __GLASGOW_HASKELL__ >= 902
+instance Ord FastString where
+  compare = uniqCompareFS
+#endif
 
 rattModules :: Set FastString
 rattModules = Set.fromList ["Rattus.Internal","Rattus.Primitives"
@@ -84,6 +101,9 @@ getNameModule v = do
 -- | The set of stable built-in types.
 ghcStableTypes :: Set FastString
 ghcStableTypes = Set.fromList ["Int","Bool","Float","Double","Char", "IO"]
+
+isGhcStableType :: FastString -> Bool
+isGhcStableType = (`Set.member` ghcStableTypes)
 
 
 newtype TypeCmp = TC Type
@@ -150,7 +170,7 @@ isStableRec c d pr t = do
           -- If it's a Rattus type constructor check if it's a box
           | isRattModule mod && name == "Box" -> True
             -- If its a built-in type check the set of stable built-in types
-          | isGhcModule mod -> name `Set.member` ghcStableTypes
+          | isGhcModule mod -> isGhcStableType name 
           {- deal with type synonyms (does not seem to be necessary (??))
            | Just (subst,ty,[]) <- expandSynTyCon_maybe con args ->
              isStableRec c (d+1) pr' (substTy (extendTvSubstList emptySubst subst) ty) -}
@@ -173,6 +193,13 @@ isStableRec c d pr t = do
 isStrict :: Type -> Bool
 isStrict t = isStrictRec 0 Set.empty t
 
+#if __GLASGOW_HASKELL__ >= 902
+splitForAllTys' :: Type -> ([TyCoVar], Type)
+splitForAllTys' = splitForAllTyCoVars
+#else
+splitForAllTys' = splitForAllTys
+#endif
+
 -- | Check whether the given type is stable. This check may use
 -- 'Stable' constraints from the context.
 
@@ -184,7 +211,7 @@ isStrictRec d _ _ | d == 100 = True
 isStrictRec _ pr t | Set.member (TC t) pr = True
 isStrictRec d pr t = do
   let pr' = Set.insert (TC t) pr
-  let (_,t') = splitForAllTys t
+  let (_,t') = splitForAllTys' t
   let (c, tys) = repSplitAppTys t'
   if isJust (getTyVar_maybe c) then and (map (isStrictRec (d+1) pr') tys)
   else  case splitTyConApp_maybe t' of
@@ -196,7 +223,7 @@ isStrictRec d pr t = do
           -- If it's a Rattus type constructor check if it's a box
           | isRattModule mod && (name == "Box" || name == "O") -> True
             -- If its a built-in type check the set of stable built-in types
-          | isGhcModule mod -> name `Set.member` ghcStableTypes
+          | isGhcModule mod -> isGhcStableType name
           {- deal with type synonyms (does not seem to be necessary (??))
            | Just (subst,ty,[]) <- expandSynTyCon_maybe con args ->
              isStrictRec c (d+1) pr' (substTy (extendTvSubstList emptySubst subst) ty) -}
@@ -273,4 +300,14 @@ noLocationInfo :: SrcSpan
 noLocationInfo = UnhelpfulSpan UnhelpfulNoLocationInfo
 #else         
 noLocationInfo = UnhelpfulSpan "<no location info>"
+#endif
+
+
+
+#if __GLASGOW_HASKELL__ >= 902
+mkAlt c args e = Alt c args e
+getAlt (Alt c args e) = (c, args, e)
+#else
+mkAlt c args e = (c, args, e)
+getAlt alt = alt
 #endif

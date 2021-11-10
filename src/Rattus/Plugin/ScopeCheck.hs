@@ -23,6 +23,10 @@ import Data.IORef
 
 import Prelude hiding ((<>))
 
+#if __GLASGOW_HASKELL__ >= 902
+import GHC.Parser.Annotation
+#endif
+
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Plugins
 import GHC.Tc.Types
@@ -175,6 +179,26 @@ modifyCtxt f a =
   let ?ctxt = newc in a
 
 
+
+#if __GLASGOW_HASKELL__ >= 902
+getLocAnn' :: SrcSpanAnn' b -> SrcSpan
+getLocAnn' = locA
+
+
+updateLoc :: SrcSpanAnn' b -> (GetCtxt => a) -> (GetCtxt => a)
+updateLoc src = modifyCtxt (\c -> c {srcLoc = getLocAnn' src})
+
+#else
+getLocAnn' :: SrcSpan -> SrcSpan
+getLocAnn' s = s
+
+
+updateLoc :: SrcSpan -> (GetCtxt => a) -> (GetCtxt => a)
+updateLoc src = modifyCtxt (\c -> c {srcLoc = src})
+#endif
+
+
+
 -- | Check all definitions in the given module. If Scope errors are
 -- found, the current execution is halted with 'exitFailure'.
 checkAll :: TcGblEnv -> TcM ()
@@ -212,29 +236,50 @@ filterBinds mod anEnv scc =
           in Rattus `elem` anns || (not (NotRattus `elem` anns)  && Rattus `elem` annsMod)
 
 
+
 instance Scope a => Scope (GenLocated SrcSpan a) where
   check (L l x) =  (\c -> c {srcLoc = l}) `modifyCtxt` check x
 
 
-instance Scope (LHsBinds GhcTc) where
+#if __GLASGOW_HASKELL__ >= 902
+instance Scope a => Scope (GenLocated (SrcSpanAnn' b) a) where
+  check (L l x) =  updateLoc l $ check x
+#endif
+
+  
+instance Scope a => Scope (Bag a) where
   check bs = fmap and (mapM check (bagToList bs))
 
 instance Scope a => Scope [a] where
   check ls = fmap and (mapM check ls)
 
 
-instance Scope a => Scope (Match GhcTc a) where
+instance Scope (Match GhcTc (GenLocated SrcAnno (HsExpr GhcTc))) where
   check Match{m_pats=ps,m_grhss=rhs} = addVars (getBV ps) `modifyCtxt` check rhs
 #if __GLASGOW_HASKELL__ < 900
   check XMatch{} = return True
 #endif
 
-  
-instance Scope a => Scope (MatchGroup GhcTc a) where
+instance Scope (Match GhcTc (GenLocated SrcAnno (HsCmd GhcTc))) where
+  check Match{m_pats=ps,m_grhss=rhs} = addVars (getBV ps) `modifyCtxt` check rhs
+#if __GLASGOW_HASKELL__ < 900
+  check XMatch{} = return True
+#endif
+
+
+instance Scope (MatchGroup GhcTc (GenLocated SrcAnno (HsExpr GhcTc))) where
   check MG {mg_alts = alts} = check alts
 #if __GLASGOW_HASKELL__ < 900
   check XMatchGroup {} = return True
 #endif
+
+
+instance Scope (MatchGroup GhcTc (GenLocated SrcAnno (HsCmd GhcTc))) where
+  check MG {mg_alts = alts} = check alts
+#if __GLASGOW_HASKELL__ < 900
+  check XMatchGroup {} = return True
+#endif
+
 
 instance Scope a => ScopeBind (StmtLR GhcTc GhcTc a) where
   checkBind (LastStmt _ b _ _) =  ( , Set.empty) <$> check b
@@ -267,6 +312,10 @@ instance ScopeBind a => ScopeBind [a] where
 instance ScopeBind a => ScopeBind (GenLocated SrcSpan a) where
   checkBind (L l x) =  (\c -> c {srcLoc = l}) `modifyCtxt` checkBind x
 
+#if __GLASGOW_HASKELL__ >= 902
+instance ScopeBind a => ScopeBind (GenLocated (SrcSpanAnn' b) a) where
+  checkBind (L l x) =  updateLoc l $ checkBind x
+#endif
 
 instance Scope a => Scope (GRHS GhcTc a) where
   check (GRHS _ gs b) = do
@@ -281,7 +330,7 @@ checkRec :: GetCtxt => LHsBindLR GhcTc GhcTc -> TcM Bool
 checkRec b =  liftM2 (&&) (checkPatBind b) (check b)
 
 checkPatBind :: GetCtxt => LHsBindLR GhcTc GhcTc -> TcM Bool
-checkPatBind (L l b) = (\c -> c {srcLoc = l}) `modifyCtxt` checkPatBind' b
+checkPatBind (L l b) = updateLoc l $ checkPatBind' b
 
 checkPatBind' :: GetCtxt => HsBindLR GhcTc GhcTc -> TcM Bool
 checkPatBind' PatBind{} = do
@@ -302,7 +351,7 @@ checkRecursiveBinds bs vs = do
       Just reason | res ->
         (printMessage' SevWarning (recReason reason <> " can cause time leaks")) >> return (res, vs)
       _ -> return (res, vs)
-    where check' b@(L l _) = fc l `modifyCtxt` checkRec b
+    where check' b@(L l _) = fc (getLocAnn' l) `modifyCtxt` checkRec b
           fc l c = let
             ctxHid = either (const $ current c) (Set.union (current c) . Set.unions) (earlier c)
             in c {current = Set.empty,
@@ -319,8 +368,11 @@ checkRecursiveBinds bs vs = do
           recReason StableArr = "recursive definitions nested under arr"
 
 
-
+#if __GLASGOW_HASKELL__ >= 902
+instance ScopeBind (SCC (GenLocated SrcSpanAnnA (HsBindLR  GhcTc GhcTc), Set Var)) where
+#else
 instance ScopeBind (SCC (LHsBindLR GhcTc GhcTc, Set Var)) where
+#endif
   checkBind (AcyclicSCC (b,vs)) = (, vs) <$> check b
   checkBind (CyclicSCC bs) = checkRecursiveBinds (map fst bs) (foldMap snd bs)
   
@@ -346,7 +398,11 @@ getAllBV (L _ b) = getAllBV' b where
 
 
 -- Check nested bindings
+#if __GLASGOW_HASKELL__ >= 902
+instance ScopeBind (RecFlag, Bag (GenLocated SrcSpanAnnA (HsBindLR GhcTc GhcTc))) where
+#else
 instance ScopeBind (RecFlag, LHsBinds GhcTc) where
+#endif
   checkBind (NonRecursive, bs)  = checkBind $ bagToList bs
   checkBind (Recursive, bs) = checkRecursiveBinds bs' (foldMap getAllBV bs')
     where bs' = bagToList bs
@@ -359,8 +415,14 @@ instance ScopeBind (HsLocalBindsLR GhcTc GhcTc) where
 #if __GLASGOW_HASKELL__ < 900
   checkBind XHsLocalBindsLR{} = return (True,Set.empty)
 #endif
+
+#if __GLASGOW_HASKELL__ >= 902
+type SrcAnno = SrcSpanAnnA
+#else
+type SrcAnno = SrcSpan
+#endif
   
-instance Scope a => Scope (GRHSs GhcTc a) where
+instance Scope (GRHSs GhcTc (GenLocated SrcAnno (HsExpr GhcTc))) where
   check GRHSs{grhssGRHSs = rhs, grhssLocalBinds = lbinds} = do
     (l,vs) <- checkBind lbinds
     r <- addVars vs `modifyCtxt` (check rhs)
@@ -368,7 +430,16 @@ instance Scope a => Scope (GRHSs GhcTc a) where
 #if __GLASGOW_HASKELL__ < 900
   check XGRHSs{} = return True
 #endif
-  
+
+instance Scope (GRHSs GhcTc (GenLocated SrcAnno (HsCmd GhcTc))) where
+  check GRHSs{grhssGRHSs = rhs, grhssLocalBinds = lbinds} = do
+    (l,vs) <- checkBind lbinds
+    r <- addVars vs `modifyCtxt` (check rhs)
+    return (r && l)
+#if __GLASGOW_HASKELL__ < 900
+  check XGRHSs{} = return True
+#endif
+
 instance Show Var where
   show v = getOccString v
 
@@ -460,9 +531,16 @@ instance Scope (HsExpr GhcTc) where
   check (NegApp _ e _) = check e
   check (ExplicitSum _ _ _ e) = check e
   check (HsMultiIf _ e) = check e
+#if __GLASGOW_HASKELL__ >= 902
+  check (ExplicitList _ e) = check e
+  check RecordUpd { rupd_expr = e, rupd_flds = fs} = (&&) <$> check e <*> either check check fs
+  check HsProjection {} = return True
+  check HsGetField {gf_expr = e} = check e
+#else
   check (ExplicitList _ _ e) = check e
-  check RecordCon { rcon_flds = f} = check f
   check RecordUpd { rupd_expr = e, rupd_flds = fs} = (&&) <$> check e <*> check fs
+#endif
+  check RecordCon { rcon_flds = f} = check f
   check (ArithSeq _ _ e) = check e
   check HsBracket{} = notSupported "MetaHaskell"
   check HsRnBracketOut{} = notSupported "MetaHaskell"
@@ -549,10 +627,10 @@ instance Scope (ArithSeqInfo GhcTc) where
   check (FromTo e1 e2) = (&&) <$> check e1 <*> check e2
   check (FromThenTo e1 e2 e3) = (&&) <$> ((&&) <$> check e1 <*> check e2) <*> check e3
 
-instance Scope (HsRecordBinds GhcTc) where
+instance Scope a => Scope (HsRecFields GhcTc a) where
   check HsRecFields {rec_flds = fs} = check fs
 
-instance Scope (HsRecField' a (LHsExpr GhcTc)) where
+instance Scope b => Scope (HsRecField' a b) where
   check HsRecField{hsRecFieldArg = a} = check a
 
 instance Scope (HsTupArg GhcTc) where
@@ -611,15 +689,15 @@ stableConstrFromWrapper _ = []
 -- @Stable ai@ among @C1, ... Cn@.
 extractStableConstr :: Type -> [TyVar]
 #if __GLASGOW_HASKELL__ >= 900
-extractStableConstr  = mapMaybe isStableConstr . map irrelevantMult . fst . splitFunTys . snd . splitForAllTys
+extractStableConstr  = mapMaybe isStableConstr . map irrelevantMult . fst . splitFunTys . snd . splitForAllTys'
 #else
-extractStableConstr  = mapMaybe isStableConstr . fst . splitFunTys . snd . splitForAllTys
+extractStableConstr  = mapMaybe isStableConstr . fst . splitFunTys . snd . splitForAllTys'
 #endif
 
 
 getSCCLoc :: SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> SrcSpan
-getSCCLoc (AcyclicSCC (L l _ ,_)) = l
-getSCCLoc (CyclicSCC ((L l _,_ ) : _)) = l
+getSCCLoc (AcyclicSCC (L l _ ,_)) = getLocAnn' l
+getSCCLoc (CyclicSCC ((L l _,_ ) : _)) = getLocAnn' l
 getSCCLoc _ = noLocationInfo
 
 
@@ -667,7 +745,7 @@ checkSCC errm (AcyclicSCC (b,_)) = setCtxt (emptyCtxt errm Nothing) (check b)
 checkSCC errm (CyclicSCC bs) = (fmap and (mapM check' bs'))
   where bs' = map fst bs
         vs = foldMap snd bs
-        check' b@(L l _) = setCtxt (emptyCtxt errm (Just (vs,l))) (checkRec b)
+        check' b@(L l _) = setCtxt (emptyCtxt errm (Just (vs,getLocAnn' l))) (checkRec b)
 
 -- | Stabilizes the given context, i.e. remove all non-stable types
 -- and any tick. This is performed on checking 'box', 'arr' and

@@ -11,6 +11,10 @@ import GHC.Plugins
 import GhcPlugins
 #endif
 
+#if __GLASGOW_HASKELL__ >= 902
+import GHC.Types.Tickish
+#endif
+
 data SCxt = SCxt {srcSpan :: SrcSpan, checkStrictData :: Bool}
 
 -- | Transforms all functions into strict functions. If the
@@ -21,10 +25,10 @@ strictifyExpr :: SCxt -> CoreExpr -> CoreM CoreExpr
 strictifyExpr ss (Let (NonRec b e1) e2) = do
   e1' <- strictifyExpr ss e1
   e2' <- strictifyExpr ss e2
-  return (Case e1' b (exprType e2) [(DEFAULT, [], e2')])
+  return (Case e1' b (exprType e2) [mkAlt DEFAULT [] e2' ])
 strictifyExpr ss (Case e b t alts) = do
   e' <- strictifyExpr ss e
-  alts' <- mapM (\(c,args,e) -> fmap (\e' -> (c,args,e')) (strictifyExpr ss e)) alts
+  alts' <- mapM ((\(c,args,e) -> fmap (\e' -> mkAlt c args e' ) (strictifyExpr ss e)) . getAlt) alts
   return (Case e' b t alts')
 strictifyExpr ss (Let (Rec es) e) = do
   es' <- mapM (\ (b,e) -> strictifyExpr ss e >>= \e'-> return (b,e')) es
@@ -35,7 +39,7 @@ strictifyExpr ss (Lam b e)
     = do
        e' <- strictifyExpr ss e
        b' <- mkSysLocalFromVar (fsLit "strict") b
-       return (Lam b' (Case (varToCoreExpr b') b (exprType e) [(DEFAULT,[],e')]))
+       return (Lam b' (Case (varToCoreExpr b') b (exprType e) [mkAlt DEFAULT [] e' ]))
    | otherwise = do
        e' <- strictifyExpr ss e
        return (Lam b e')

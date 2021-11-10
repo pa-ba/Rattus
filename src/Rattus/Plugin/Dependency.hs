@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE GADTs #-}
 
 -- | This module is used to perform a dependency analysis of top-level
 -- function definitions, i.e. to find out which defintions are
@@ -35,6 +36,12 @@ import HsExpr
 import HsPat
 import HsBinds
 #endif
+
+#if __GLASGOW_HASKELL__ >= 902
+import Language.Haskell.Syntax.Extension
+import GHC.Parser.Annotation
+#endif
+
 
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -98,7 +105,11 @@ instance HasBV a => HasBV [a] where
 
 
 
+#if __GLASGOW_HASKELL__ >= 902
+getConBV (PrefixCon _ ps) = getBV ps
+#else
 getConBV (PrefixCon ps) = getBV ps
+#endif
 getConBV (InfixCon p p') = getBV p `Set.union` getBV p'
 getConBV (RecCon (HsRecFields {rec_flds = fs})) = foldl run Set.empty fs
       where run s (L _ f) = getBV (hsRecFieldArg f) `Set.union` s
@@ -277,10 +288,19 @@ instance HasFV a => HasFV (StmtLR GhcTc GhcTc a) where
   getFV (XStmtLR e) = getFV e
 #endif
 
+#if __GLASGOW_HASKELL__ >= 902
+instance HasFV (HsRecFields GhcTc (GenLocated SrcSpanAnnA (HsExpr GhcTc))) where
+#else
 instance HasFV (HsRecordBinds GhcTc) where
+#endif
   getFV HsRecFields{rec_flds = fs} = getFV fs
 
+
+#if __GLASGOW_HASKELL__ >= 902
+instance HasFV (HsRecField' o (GenLocated SrcSpanAnnA (HsExpr GhcTc))) where
+#else
 instance HasFV (HsRecField' o (LHsExpr GhcTc)) where
+#endif
   getFV HsRecField {hsRecFieldArg = arg}  = getFV arg
 
 instance HasFV (ArithSeqInfo GhcTc) where
@@ -341,9 +361,17 @@ instance HasFV (HsExpr GhcTc) where
   getFV (HsMultiIf _ es) = getFV es
   getFV (HsLet _ bs e) = getFV bs `Set.union` getFV e
   getFV (HsDo _ _ e) = getFV e
+#if __GLASGOW_HASKELL__ >= 902
+  getFV HsProjection {} = Set.empty
+  getFV HsGetField {gf_expr = e} = getFV e
+  getFV (ExplicitList _ es) = getFV es
+  getFV (RecordUpd {rupd_expr = e, rupd_flds = fs}) =
+    getFV e `Set.union` either getFV getFV fs
+#else
   getFV (ExplicitList _ _ es) = getFV es
-  getFV (RecordCon {rcon_flds = fs}) = getFV fs
   getFV (RecordUpd {rupd_expr = e, rupd_flds = fs}) = getFV e `Set.union` getFV fs
+#endif
+  getFV (RecordCon {rcon_flds = fs}) = getFV fs
   getFV (ArithSeq _ _ e) = getFV e
   getFV (HsBracket _ e) = getFV e
   getFV HsRnBracketOut {} = Set.empty

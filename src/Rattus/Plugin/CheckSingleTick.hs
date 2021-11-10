@@ -8,6 +8,11 @@
 module Rattus.Plugin.CheckSingleTick
   (checkExpr, CheckExpr (..)) where
 
+#if __GLASGOW_HASKELL__ >= 902
+import GHC.Types.Tickish
+#endif
+
+
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Plugins
 #else
@@ -206,7 +211,8 @@ checkExpr' c@Ctx{current = cur, hidden = hid, earlier = earl} (App e1 e2) =
         Nothing -> typeError c v (text "can only advance under delay")
     _ -> liftM2 (<|>) (checkExpr' c e1)  (checkExpr' c e2)
 checkExpr' c (Case e v _ alts) =
-    liftM2 (<|>) (checkExpr' c e) (liftM (foldl' (<|>) Nothing) (mapM (\ (_,vs,e)-> checkExpr' (addVars vs c') e) alts))
+    liftM2 (<|>) (checkExpr' c e) (liftM (foldl' (<|>) Nothing)
+                                   (mapM ((\ (_,vs,e)-> checkExpr' (addVars vs c') e) . getAlt) alts))
   where c' = addVars [v] c
 checkExpr' c (Lam v e)
   | isTyVar v || (not $ tcIsLiftedTypeKind $ typeKind $ varType v) = do

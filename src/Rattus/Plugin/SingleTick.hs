@@ -32,7 +32,7 @@ toSingleTick (Let (NonRec b e1) e2) = do
   return (Let (NonRec b e1') e2')
 toSingleTick (Case e b ty alts) = do
   e' <- toSingleTick e
-  alts' <- mapM (\ (c,bs,f) -> fmap (\ x ->(c,bs,x)) (toSingleTick f)) alts
+  alts' <- mapM ((\ (c,bs,f) -> fmap (\ x -> mkAlt c bs x) (toSingleTick f)) . getAlt) alts
   return (Case e' b ty alts')
 toSingleTick (Cast e c) = do
   e' <- toSingleTick e
@@ -108,7 +108,7 @@ extractAdv (Lam x e) = do
   return (foldLets advs' (Lam x e'))
 extractAdv (Case e b ty alts) = do
   e' <- extractAdv e
-  alts' <- mapM (\ (c,bs,f) -> fmap (\ x ->(c,bs,x)) (extractAdv f)) alts
+  alts' <- mapM ((\ (c,bs,f) -> fmap (\ x -> mkAlt c bs x) (extractAdv f)) . getAlt) alts
   return (Case e' b ty alts')
 extractAdv (Cast e c) = do
   e' <- extractAdv e
@@ -152,7 +152,7 @@ extractAdv' (Lam x e) = do
   return (Lam x e')
 extractAdv' (Case e b ty alts) = do
   e' <- extractAdv' e
-  alts' <- mapM (\ (c,bs,f) -> fmap (\ x ->(c,bs,x)) (extractAdv' f)) alts
+  alts' <- mapM ((\ (c,bs,f) -> fmap (\ x -> mkAlt c bs x) (extractAdv' f)) . getAlt) alts
   return (Case e' b ty alts')
 extractAdv' (Cast e c) = do
   e' <- extractAdv' e
