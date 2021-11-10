@@ -1,4 +1,4 @@
-# Introduction
+# Introduction [![CI](https://github.com/pa-ba/Rattus/actions/workflows/ci.yml/badge.svg)](https://github.com/pa-ba/Rattus/actions/workflows/ci.yml)
 
 This library implements the Rattus programming language as an embedded
 DSL. To this end the library provides a GHC plugin that performs the
