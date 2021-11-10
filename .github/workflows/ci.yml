@@ -1,0 +1,39 @@
+name: CI
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types:
+      - opened
+      - synchronize
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cabal: ["3.4"]
+        ghc: ["8.6.5", "8.8.4", "8.10.7", "9.0.1", "9.2.1"]
+    env:
+      CONFIG: "--enable-tests"
+    steps:
+      - uses: actions/checkout@v2
+      - uses: haskell/actions/setup@v1.2
+        id: setup-haskell-cabal
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          cabal-version: ${{ matrix.cabal }}
+      - run: cabal update
+      - run: cabal freeze $CONFIG
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ${{ steps.setup-haskell-cabal.outputs.cabal-store }}
+            dist-newstyle
+          key: ${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.project.freeze') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.ghc }}-
+      - run: cabal build $CONFIG
+      - run: cabal test $CONFIG
+      - run: cabal haddock $CONFIG
+      - run: cabal sdist
