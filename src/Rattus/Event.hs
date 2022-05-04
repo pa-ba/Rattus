@@ -9,6 +9,8 @@ module Rattus.Event
   , never
   , switch
   , switchTrans
+  , dswitchTrans
+  , combine
   , Event
   , trigger
   , triggerMap
@@ -20,7 +22,7 @@ import Rattus
 import Rattus.Stream hiding (map)
 import qualified Rattus.Stream as Str
 
-import Prelude hiding (map)
+import Prelude hiding (map,zipWith)
 
 -- | Events are simply streams of 'Maybe''s.
 type Event a = Str (Maybe' a)
@@ -45,6 +47,16 @@ switch (x ::: xs) (Nothing' ::: fas) = x ::: delay (switch (adv xs)  (adv fas))
 switch  _xs       (Just' (a ::: as) ::: fas)   = a ::: (delay switch <#> as <#> fas)
 
 
+-- | @combine f s e@ is similar to @switch s e@, but instead of
+-- switching to new streams @s'@ every time the event 'e' occurs with
+-- some value @s'@, the new stream @s'@ is combined with the current
+-- stream @s@ using @zipWith f s' s@.
+combine :: Box (a -> a -> a) -> Str a -> Event (Str a) -> Str a
+combine f (x ::: xs) (Nothing' ::: fas) = x  ::: delay (combine f (adv xs) (adv fas))
+combine f xs         (Just' as ::: fas) = x' ::: delay (combine f (adv xs') (adv fas))
+  where (x' ::: xs') = zipWith f xs as
+
+
 -- | Like 'switch' but works on stream functions instead of
 -- streams. That is, @switchTrans s e@ will behave like @s@ but
 -- switches to @s'$ every time the event 'e' occurs with some value
@@ -57,6 +69,17 @@ switchTrans' :: Str b -> Event (Str a -> Str b) -> Str a -> Str b
 switchTrans' (b ::: bs) (Nothing' ::: fs) (_:::as) = b ::: (delay switchTrans' <#> bs <#> fs <#> as)
 switchTrans' _xs        (Just' f ::: fs)  as@(_:::as') = b' ::: (delay switchTrans' <#> bs' <#> fs <#> as')
   where (b' ::: bs') = f as
+
+
+
+-- | Like 'switchTrans' but takes a delayed event as input, which
+-- allows the switch to incorporate feedback from itself.
+dswitchTrans :: (Str a -> Str b) -> O (Event (Str a -> Str b)) -> (Str a -> Str b)
+dswitchTrans f es as = dswitchTrans' (f as) es as
+
+-- | Helper function for 'dswitchTrans'.
+dswitchTrans' :: Str b -> O (Event (Str a -> Str b)) -> Str a -> Str b
+dswitchTrans' (b ::: bs) de (_:::as) = b ::: (delay switchTrans' <#> bs <#> de <#> as)
 
 
 -- | Trigger an event as every time the given predicate turns true on
