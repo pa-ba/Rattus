@@ -101,15 +101,15 @@ ballStep (p :* v) (pad :* inp) = (p .+. (time inp .*. v') :* v')
   where v' = velTrans (padObj pad :! Nil) p v (time inp)
 
 
-ballTrig :: Input -> Maybe' (Str (Float :* Input) -> Str Pos)
-ballTrig inp = if reset inp then Just' ballPos else Nothing'
+
+ballTrig :: Str (Pos :* Float) -> Event (Str (Float :* Input) -> Str Pos)
+ballTrig (((_ :* y) :* _) ::: xs) = (if y < size_y * (-0.5)  then Just' ballPos else Nothing') ::: delay (ballTrig' (adv xs)) 
+
 
 pong :: Str Input -> Str (Pos :* Float)
 pong inp = zip ball pad
   where pad :: Str Float
         pad = padPos inp
-        ball :: Str Pos
-        ball = switchTrans ballPos -- ball behaviour 
-          -- trigger restart on pressing space bar
-          (map (box ballTrig) inp)
-          (zip pad inp)
+        ball = dswitchTrans ballPos
+                (delay (ballTrig (pong (adv (tl inp)))))
+                (zip pad inp)
