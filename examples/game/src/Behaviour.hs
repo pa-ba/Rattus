@@ -103,7 +103,7 @@ ballStep (p :* v) (pad :* inp) = (p .+. (time inp .*. v') :* v')
 
 
 ballTrig :: Str (Pos :* Float) -> Event (Str (Float :* Input) -> Str Pos)
-ballTrig (((_ :* y) :* _) ::: xs) = (if y < size_y * (-0.5)  then Just' ballPos else Nothing') ::: delay (ballTrig' (adv xs)) 
+ballTrig (((_ :* y) :* _) ::: xs) = (if y < size_y * (-0.5)  then Just' ballPos else Nothing') ::: delay (ballTrig (adv xs)) 
 
 
 pong :: Str Input -> Str (Pos :* Float)
