@@ -52,7 +52,7 @@ step f (_,_,_,st,b) = (x,y,pad, adv st',noInput)
 
 main :: IO ()
 main = play
-       (InWindow "bouncy lambda" (size_x',size_y') (100,100))
+       (InWindow "press [spacebar] to reset the game" (size_x',size_y') (100,100))
        black
        60
        initial
