@@ -73,9 +73,11 @@ strictify opts guts b@(Rec bs) = do
     es' <- mapM (\ (v,e) -> do
                     e' <- toSingleTick e
                     lazy <- allowLazyData guts v
+                    allowRec <- allowRecursion guts v
                     e'' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy))e'
                     checkExpr CheckExpr{ recursiveSet = Set.fromList vs, oldExpr = e,
-                                         fatalError = False, verbose = debugMode opts} e''
+                                         fatalError = False, verbose = debugMode opts,
+                                         allowRecExp = allowRec} e''
                     return e'') bs
     return (Rec (zip vs es'))
   else return b
@@ -88,9 +90,11 @@ strictify opts guts b@(NonRec v e) = do
       -- liftIO $ putStrLn "-------- new --------"
       -- liftIO $ putStrLn (showSDocUnsafe (ppr e'))
       lazy <- allowLazyData guts v
+      allowRec <- allowRecursion guts v
       e'' <- strictifyExpr (SCxt (nameSrcSpan $ getName v) (not lazy)) e'
       checkExpr CheckExpr{ recursiveSet = Set.empty, oldExpr = e,
-                           fatalError = False, verbose = debugMode opts} e''
+                           fatalError = False, verbose = debugMode opts,
+                           allowRecExp = allowRec } e''
       return (NonRec v e'')
     else return b
 
@@ -108,6 +112,11 @@ allowLazyData :: ModGuts -> CoreBndr -> CoreM Bool
 allowLazyData guts bndr = do
   l <- annotationsOn guts bndr :: CoreM [Rattus]
   return (AllowLazyData `elem` l)
+
+allowRecursion :: ModGuts -> CoreBndr -> CoreM Bool
+allowRecursion guts bndr = do
+  l <- annotationsOn guts bndr :: CoreM [Rattus]
+  return (AllowRecursion `elem` l)
 
 
 shouldTransform :: ModGuts -> CoreBndr -> CoreM Bool

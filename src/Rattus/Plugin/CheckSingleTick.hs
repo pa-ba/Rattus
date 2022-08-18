@@ -54,7 +54,8 @@ data Ctx = Ctx
     primAlias :: Map Var Prim,
     -- number of ticks (for recursive calls). This is to allow
     -- recursive definitions of the form @f = delay (delay (adv f))@.
-    ticks :: Int} 
+    ticks :: Int,
+    allowRecursion :: Bool} 
 
 primMap :: Map FastString Prim
 primMap = Map.fromList
@@ -89,14 +90,17 @@ data Scope = Hidden SDoc | Visible
 getScope  :: Ctx -> Var -> Scope
 getScope c v =
     if v `Set.member` recDef c then
-      if ticks c > 0 then Visible
+      if ticks c > 0 || allowRecursion c then Visible
       else Hidden ("(Mutually) recursive call to " <> ppr v <> " must occur under delay")
     else case Map.lookup v (hidden c) of
       Just reason ->
         if (isStable (stableTypes c) (varType v)) then Visible
         else case reason of
-          NestedRec rv -> Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$ "It appears in a local recursive definition (namely of " <> ppr rv <> ")"
-                       $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
+          NestedRec rv ->
+            if allowRecursion c then Visible
+            else Hidden ("Variable " <> ppr v <> " is no longer in scope:"
+                         $$ "It appears in a local recursive definition (namely of " <> ppr rv <> ")"
+                         $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
           BoxApp -> Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
                        "It occurs under " <> keyword "box" $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")
           AdvApp -> Hidden ("Variable " <> ppr v <> " is no longer in scope: It occurs under adv.")
@@ -123,16 +127,17 @@ typeError cxt var doc =
   return (Just (TypeError (pickFirst (srcLoc cxt) (nameSrcSpan (varName var))) doc))
 
 
-emptyCtx :: Set Var -> Ctx
-emptyCtx vars =
+emptyCtx :: CheckExpr -> Ctx
+emptyCtx c =
   Ctx { current =  Set.empty,
         earlier = Nothing,
         hidden = Map.empty,
         srcLoc = noLocationInfo,
-        recDef = vars,
+        recDef = recursiveSet c,
         primAlias = Map.empty,
         stableTypes = Set.empty,
-        ticks = 0}
+        ticks = 0,
+        allowRecursion = allowRecExp c}
 
 
 isPrimExpr :: Ctx -> Expr Var -> Maybe (Prim,Var)
@@ -169,12 +174,13 @@ data CheckExpr = CheckExpr{
   recursiveSet :: Set Var,
   oldExpr :: Expr Var,
   fatalError :: Bool,
-  verbose :: Bool
+  verbose :: Bool,
+  allowRecExp :: Bool
   }
 
 checkExpr :: CheckExpr -> Expr Var -> CoreM ()
 checkExpr c e = do
-  res <- checkExpr' (emptyCtx (recursiveSet c)) e
+  res <- checkExpr' (emptyCtx c) e
   case res of
     Nothing -> return ()
     Just (TypeError src doc) ->

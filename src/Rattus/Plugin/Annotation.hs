@@ -26,8 +26,14 @@ import Data.Data
 -- > {-# ANN myFunction AllowLazyData #-}
 -- >
 -- > {-# ANN module AllowLazyData #-}
+--
+-- Rattus only allows guarded recursion, i.e. recursive calls must
+-- occur in the scope of a tick. Structural recursion over strict data
+-- types is safe as well, but is currently not checked. To disable the
+-- guarded recursion check, annotate the module or function with
+-- 'AllowRecursion'.
 
-data Rattus = Rattus | NotRattus | AllowLazyData deriving (Typeable, Data, Show, Eq)
+data Rattus = Rattus | NotRattus | AllowLazyData | AllowRecursion deriving (Typeable, Data, Show, Ord, Eq)
 
 
 -- | This annotation type is for internal use only.

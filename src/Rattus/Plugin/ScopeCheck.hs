@@ -5,6 +5,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE CPP #-}
 
@@ -62,6 +63,8 @@ import System.Exit
 import Data.Either
 import Data.Maybe
 
+import Data.Data hiding (tyConName)
+
 import Control.Monad
 
 type ErrorMsg = (Severity,SrcSpan,SDoc)
@@ -100,7 +103,9 @@ data Ctxt = Ctxt
     -- | This flag indicates whether the context was 'stabilized'
     -- (stripped of all non-stable stuff). It is set when typechecking
     -- 'box', 'arr' and guarded recursion.
-    stabilized :: Maybe StableReason}
+    stabilized :: Maybe StableReason,
+    -- | Allow general recursion.
+    allowRecursion :: Bool}
 
 
 
@@ -108,8 +113,8 @@ data Ctxt = Ctxt
 -- non-recursive definitions, the argument is @Nothing@. Otherwise, it
 -- contains the recursively defined variables along with the location
 -- of the recursive definition.
-emptyCtxt :: ErrorMsgsRef -> Maybe (Set Var,SrcSpan) -> Ctxt
-emptyCtxt em mvar =
+emptyCtxt :: ErrorMsgsRef -> Maybe (Set Var,SrcSpan) -> Bool -> Ctxt
+emptyCtxt em mvar allowRec =
   Ctxt { errorMsgs = em,
          current =  Set.empty,
          earlier = Left NoDelay,
@@ -120,7 +125,8 @@ emptyCtxt em mvar =
          stableTypes = Set.empty,
          stabilized = case mvar of
            Just (_,loc) ->  Just (StableRec loc)
-           _  ->  Nothing}
+           _  ->  Nothing,
+         allowRecursion = allowRec}
 
 -- | A local context, consisting of a set of variables.
 type LCtxt = Set Var
@@ -704,9 +710,10 @@ getSCCLoc _ = noLocationInfo
 checkSCC' ::  Module -> AnnEnv -> SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> TcM (Bool, [ErrorMsg])
 checkSCC' mod anEnv scc = do
   err <- liftIO (newIORef [])
-  res <- checkSCC err scc
+  let allowRec = AllowRecursion `Set.member` getAnn mod anEnv scc
+  res <- checkSCC allowRec err scc
   msgs <- liftIO (readIORef err)
-  let anns = getInternalAnn mod anEnv scc
+  let anns = getAnn mod anEnv scc
   if ExpectWarning `Set.member` anns 
     then if ExpectError `Set.member` anns
          then return (False,[(SevError, getSCCLoc scc, "Annotation to expect both warning and error is not allowed.")])
@@ -719,16 +726,15 @@ checkSCC' mod anEnv scc = do
               else return (True,[])
          else return (res, msgs)
 
-
-getInternalAnn :: Module -> AnnEnv -> SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> Set InternalAnn
-getInternalAnn mod anEnv scc =
+getAnn :: forall a . (Data a, Ord a) => Module -> AnnEnv -> SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> Set a
+getAnn mod anEnv scc =
   case scc of
     (AcyclicSCC (_,vs)) -> Set.unions $ Set.map checkVar vs
     (CyclicSCC bs) -> Set.unions $ map (Set.unions . Set.map checkVar . snd) bs
-  where checkVar :: Var -> Set InternalAnn
+  where checkVar :: Var -> Set a
         checkVar v =
-          let anns = findAnns deserializeWithData anEnv (NamedTarget name) :: [InternalAnn]
-              annsMod = findAnns deserializeWithData anEnv (ModuleTarget mod) :: [InternalAnn]
+          let anns = findAnns deserializeWithData anEnv (NamedTarget name) :: [a]
+              annsMod = findAnns deserializeWithData anEnv (ModuleTarget mod) :: [a]
               name :: Name
               name = varName v
           in Set.fromList anns `Set.union` Set.fromList annsMod
@@ -739,13 +745,13 @@ getInternalAnn mod anEnv scc =
 -- non-recursive definition or a group of (mutual) recursive
 -- definitions.
 
-checkSCC :: ErrorMsgsRef -> SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> TcM Bool
-checkSCC errm (AcyclicSCC (b,_)) = setCtxt (emptyCtxt errm Nothing) (check b)
+checkSCC :: Bool -> ErrorMsgsRef -> SCC (LHsBindLR  GhcTc GhcTc, Set Var) -> TcM Bool
+checkSCC allowRec errm (AcyclicSCC (b,_)) = setCtxt (emptyCtxt errm Nothing allowRec) (check b)
 
-checkSCC errm (CyclicSCC bs) = (fmap and (mapM check' bs'))
+checkSCC allowRec errm (CyclicSCC bs) = (fmap and (mapM check' bs'))
   where bs' = map fst bs
         vs = foldMap snd bs
-        check' b@(L l _) = setCtxt (emptyCtxt errm (Just (vs,getLocAnn' l))) (checkRec b)
+        check' b@(L l _) = setCtxt (emptyCtxt errm (Just (vs,getLocAnn' l)) allowRec) (checkRec b)
 
 -- | Stabilizes the given context, i.e. remove all non-stable types
 -- and any tick. This is performed on checking 'box', 'arr' and
@@ -767,8 +773,8 @@ data VarScope = Hidden SDoc | Visible | ImplUnboxed
 getScope  :: GetCtxt => Var -> VarScope
 getScope v =
   case ?ctxt of
-    Ctxt{recDef = Just (vs,_), earlier = e}
-      | v `Set.member` vs ->
+    Ctxt{recDef = Just (vs,_), earlier = e, allowRecursion = allowRec} | v `Set.member` vs ->
+     if allowRec then Visible else
         case e of
           Right _ -> Visible
           Left NoDelay -> Hidden ("The (mutually) recursive call to " <> ppr v <> " must occur in the scope of a delay")
@@ -776,7 +782,7 @@ getScope v =
                             <> "There is a delay, but its scope is interrupted by " <> tickHidden hr <> ".")
     _ ->  case Map.lookup v (hidden ?ctxt) of
             Just (Stabilize (StableRec rv)) ->
-              if (isStable (stableTypes ?ctxt) (varType v)) then Visible
+              if (isStable (stableTypes ?ctxt) (varType v)) || allowRecursion ?ctxt then Visible
               else Hidden ("Variable " <> ppr v <> " is no longer in scope:" $$
                        "It appears in a local recursive definition (at " <> ppr rv <> ")"
                        $$ "and is of type " <> ppr (varType v) <> ", which is not stable.")

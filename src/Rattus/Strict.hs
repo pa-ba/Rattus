@@ -1,3 +1,5 @@
+{-# OPTIONS -fplugin=Rattus.Plugin #-}
+
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeOperators #-}
@@ -10,6 +12,8 @@
 
 module Rattus.Strict
   ( List(..),
+    init',
+    listDelay,
     reverse',
     (+++),
     listToMaybe',
@@ -22,12 +26,33 @@ module Rattus.Strict
   )where
 
 import Data.VectorSpace
+import Rattus.Primitives
+import Rattus.Plugin.Annotation
 
 infixr 2 :*
 infixr 8 :!
 
 -- | Strict list type.
 data List a = Nil | !a :! !(List a)
+
+
+{-# ANN module Rattus #-}
+-- All recursive functions in this module are defined by structural
+-- induction on a strict type.
+{-# ANN module AllowRecursion #-}
+
+-- | Turns a list of delayed computations into a delayed computation
+-- that produces a list of values.
+listDelay :: List (O a) -> O (List a)
+listDelay Nil = delay Nil
+listDelay (x :! xs) = let xs' = listDelay xs in delay (adv x :! adv xs')
+
+-- | Remove the last element from a list if there is one, otherwise
+-- return 'Nil'.
+init' :: List a -> List a
+init' Nil = Nil
+init' (_ :! Nil) = Nil
+init' (x :! xs) = x :! init' xs
 
 -- | Reverse a list.
 reverse' :: List a -> List a
