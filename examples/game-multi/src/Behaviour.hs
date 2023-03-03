@@ -112,7 +112,7 @@ ballStep (p :* v) (pad :* inp) = (p .+. (time inp .*. v') :* v')
   where v' = velTrans (padObj pad :! Nil) p v (time inp)
 
 
-data ObjAction a b = Remove | Add ! (Str a -> Str b)
+data ObjAction a b = Remove | Add !(Str a -> Str b)
 
 objTrans :: Event (ObjAction a b) -> List (Str b) -> Str a -> Str (List b)
 objTrans (e ::: es) os xs = heads ::: delay (objTrans (adv es) (adv tails) (adv (tl xs)))
@@ -132,6 +132,8 @@ ballTrig inp
   | otherwise   = Nothing'
 
 pong :: Str Input -> Str (List Pos :* Float)
-pong inp = zip ball pad  where
+pong inp = zip balls pad  where
+  pad :: Str Float
   pad = padPos inp
-  ball = objTrans (map (box ballTrig) inp) Nil (zip pad inp)
+  balls :: Str (List Pos)
+  balls = objTrans (map (box ballTrig) inp) Nil (zip pad inp)
