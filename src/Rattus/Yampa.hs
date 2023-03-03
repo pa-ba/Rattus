@@ -61,7 +61,7 @@ compose (SF sf2) (SF sf1) = SF sf
 
 -- | Compute the integral of a signal. The first argument is the
 -- offset.
-integral :: (Stable a, VectorSpace a s) => a -> SF a a
+integral :: (Stable a, VectorSpace a s, Fractional s) => a -> SF a a
 integral acc = SF sf'
   where sf' t a = let acc' = acc ^+^ (realToFrac t *^ a)
                   in (delay (integral acc') :* acc')
