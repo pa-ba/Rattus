@@ -22,6 +22,9 @@ module Rattus.Plugin.Utils (
   getAlt,
   splitForAllTys')
   where
+#if __GLASGOW_HASKELL__ >= 904
+import qualified GHC.Data.Strict as Strict
+#endif  
 #if __GLASGOW_HASKELL__ >= 902
 import GHC.Utils.Logger
 #endif
@@ -58,7 +61,10 @@ printMessage :: (HasDynFlags m, MonadIO m) =>
                 Severity -> SrcSpan -> MsgDoc -> m ()
 #endif
 printMessage sev loc doc = do
-#if __GLASGOW_HASKELL__ >= 902
+#if __GLASGOW_HASKELL__ >= 904
+  logger <- getLogger
+  liftIO $ putLogMsg logger (logFlags logger) (MCDiagnostic sev (if sev == SevError then ErrorWithoutFlag else WarningWithoutFlag)) loc doc
+#elif __GLASGOW_HASKELL__ >= 902
   dflags <- getDynFlags
   logger <- getLogger
   liftIO $ putLogMsg logger dflags NoReason sev loc doc
@@ -281,7 +287,9 @@ mkSysLocalFromExpr lit e = mkSysLocalM lit (exprType e)
 
 
 fromRealSrcSpan :: RealSrcSpan -> SrcSpan
-#if __GLASGOW_HASKELL__ >= 900
+#if __GLASGOW_HASKELL__ >= 904
+fromRealSrcSpan span = RealSrcSpan span Strict.Nothing
+#elif __GLASGOW_HASKELL__ >= 900
 fromRealSrcSpan span = RealSrcSpan span Nothing
 #else
 fromRealSrcSpan span = RealSrcSpan span

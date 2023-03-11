@@ -37,8 +37,9 @@ import Constraint
 
 import Data.Set (Set)
 import qualified Data.Set as Set
-
-
+#if __GLASGOW_HASKELL__ >= 904
+import GHC.Types.Unique.FM
+#endif
 
 
 
@@ -48,6 +49,9 @@ tcStable _ = Just $ TcPlugin
   { tcPluginInit = return ()
   , tcPluginSolve = \ () -> stableSolver
   , tcPluginStop = \ () -> return ()
+#if __GLASGOW_HASKELL__ >= 904
+  , tcPluginRewrite = \ () -> emptyUFM
+#endif
   }
 
 
@@ -63,8 +67,14 @@ solveStable c (ty,(ct,cl))
   | isStable c ty = Just (wrap cl ty, ct)
   | otherwise = Nothing
 
+#if __GLASGOW_HASKELL__ >= 904
+stableSolver :: EvBindsVar -> [Ct] -> [Ct] -> TcPluginM TcPluginSolveResult
+stableSolver _ given wanted = do
+#else
 stableSolver :: [Ct] -> [Ct] -> [Ct] -> TcPluginM TcPluginResult
 stableSolver given _derived wanted = do
+#endif
+
   let chSt = concatMap filterCt wanted
   let haveSt = Set.fromList $ concatMap (filterTypeVar . fst) $ concatMap filterCt given
   case mapM (solveStable haveSt) chSt of

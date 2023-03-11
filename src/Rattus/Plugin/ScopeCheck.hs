@@ -342,8 +342,13 @@ checkPatBind' :: GetCtxt => HsBindLR GhcTc GhcTc -> TcM Bool
 checkPatBind' PatBind{} = do
   printMessage' SevError ("(Mutual) recursive pattern binding definitions are not supported in Rattus")
   return False
-         
-checkPatBind' AbsBinds {abs_binds = binds} = liftM and (mapM checkPatBind (bagToList binds))
+#if __GLASGOW_HASKELL__ < 904
+checkPatBind' AbsBinds {abs_binds = binds} = 
+#else
+checkPatBind' (XHsBindsLR AbsBinds {abs_binds = binds}) = 
+#endif
+  liftM and (mapM checkPatBind (bagToList binds))
+
 checkPatBind' _ = return True
 
 
@@ -396,11 +401,15 @@ instance ScopeBind (HsBindLR GhcTc GhcTc) where
 getAllBV :: GenLocated l (HsBindLR GhcTc GhcTc) -> Set Var
 getAllBV (L _ b) = getAllBV' b where
   getAllBV' (FunBind{fun_id = L _ v}) = Set.singleton v
+#if __GLASGOW_HASKELL__ < 904
   getAllBV' (AbsBinds {abs_exports = es, abs_binds = bs}) = Set.fromList (map abe_poly es) `Set.union` foldMap getBV bs
+  getAllBV' XHsBindsLR{} = Set.empty
+#else
+  getAllBV' (XHsBindsLR (AbsBinds {abs_exports = es, abs_binds = bs})) = Set.fromList (map abe_poly es) `Set.union` foldMap getBV bs
+#endif
   getAllBV' (PatBind {pat_lhs = pat}) = getBV pat
   getAllBV' (VarBind {var_id = v}) = Set.singleton v
   getAllBV' PatSynBind{} = Set.empty
-  getAllBV' XHsBindsLR{} = Set.empty
 
 
 -- Check nested bindings
@@ -514,26 +523,42 @@ instance Scope (HsExpr GhcTc) where
                             <> " There is a delay, but its scope is interrupted by " <> tickHidden hr <> ".")
     _ -> liftM2 (&&) (check e1)  (check e2)
   check HsUnboundVar{}  = return True
+#if __GLASGOW_HASKELL__ >= 904
+  check (HsPar _ _ e _) = check e
+  check (HsLamCase _ _ mg) = check mg
+  check HsRecSel{} = return True
+  check HsTypedBracket{} = notSupported "MetaHaskell"
+  check HsUntypedBracket{} = notSupported "MetaHaskell"
+#else
   check HsConLikeOut{} = return True
   check HsRecFld{} = return True
+  check (HsPar _ e) = check e
+  check (HsLamCase _ mg) = check mg
+  check HsBracket{} = notSupported "MetaHaskell"
+  check (HsTick _ _ e) = check e
+  check (HsBinTick _ _ _ e) = check e
+  check HsRnBracketOut{} = notSupported "MetaHaskell"
+  check HsTcBracketOut{} = notSupported "MetaHaskell"
+#endif
+#if __GLASGOW_HASKELL__ >= 904
+  check (HsLet _ _ bs _ e) = do
+#else
+  check (HsLet _ bs e) = do
+#endif
+    (l,vs) <- checkBind bs
+    r <- addVars vs `modifyCtxt` (check e)
+    return (r && l)
+         
   check HsOverLabel{} = return True
   check HsIPVar{} = notSupported "implicit parameters"
   check HsOverLit{} = return True  
-  check (HsTick _ _ e) = check e
-  check (HsBinTick _ _ _ e) = check e  
-  check (HsPar _ e) = check e
   check HsLit{} = return True
   check (OpApp _ e1 e2 e3) = and <$> mapM check [e1,e2,e3]
   check (HsLam _ mg) = check mg
-  check (HsLamCase _ mg) = check mg
   check (HsCase _ e1 e2) = (&&) <$> check e1 <*> check e2
   check (SectionL _ e1 e2) = (&&) <$> check e1 <*> check e2
   check (SectionR _ e1 e2) = (&&) <$> check e1 <*> check e2
   check (ExplicitTuple _ e _) = check e
-  check (HsLet _ bs e) = do
-    (l,vs) <- checkBind bs
-    r <- addVars vs `modifyCtxt` (check e)
-    return (r && l)
   check (NegApp _ e _) = check e
   check (ExplicitSum _ _ _ e) = check e
   check (HsMultiIf _ e) = check e
@@ -548,9 +573,6 @@ instance Scope (HsExpr GhcTc) where
 #endif
   check RecordCon { rcon_flds = f} = check f
   check (ArithSeq _ _ e) = check e
-  check HsBracket{} = notSupported "MetaHaskell"
-  check HsRnBracketOut{} = notSupported "MetaHaskell"
-  check HsTcBracketOut{} = notSupported "MetaHaskell"
   check HsSpliceE{} = notSupported "Template Haskell"
   check (HsProc _ p e) = mod `modifyCtxt` check e
     where mod c = addVars (getBV p) (stabilize StableArr c)
@@ -591,6 +613,11 @@ impossible = printMessageCheck SevError "This syntax should never occur after ty
 instance Scope XXExprGhcTc where
   check (WrapExpr (HsWrap _ e)) = check e
   check (ExpansionExpr (HsExpanded _ e)) = check e
+#if __GLASGOW_HASKELL__ >= 904
+  check ConLikeTc{} = return True
+  check (HsTick _ e) = check e
+  check (HsBinTick _ _ e) = check e
+#endif
 #elif __GLASGOW_HASKELL__ >= 810
 instance Scope NoExtCon where
   check _ = return True
@@ -611,16 +638,23 @@ instance Scope (HsCmd GhcTc) where
   check (HsCmdArrForm _ e1 _ _ e2) = (&&) <$> check e1 <*> check e2
   check (HsCmdApp _ e1 e2) = (&&) <$> check e1 <*> check e2
   check (HsCmdLam _ e) = check e
+#if __GLASGOW_HASKELL__ >= 904
+  check (HsCmdPar _ _ e _) = check e
+  check (HsCmdLamCase _ _ e) = check e  
+  check (HsCmdLet _ _ bs _ e) = do
+#else
   check (HsCmdPar _ e) = check e
-  check (HsCmdCase _ e1 e2) = (&&) <$> check e1 <*> check e2
-  check (HsCmdIf _ _ e1 e2 e3) = (&&) <$> ((&&) <$> check e1 <*> check e2) <*> check e3
+  check (HsCmdLamCase _ e) = check e
   check (HsCmdLet _ bs e) = do
+#endif
     (l,vs) <- checkBind bs
     r <- addVars vs `modifyCtxt` (check e)
     return (r && l)
+
+  check (HsCmdCase _ e1 e2) = (&&) <$> check e1 <*> check e2
+  check (HsCmdIf _ _ e1 e2 e3) = (&&) <$> ((&&) <$> check e1 <*> check e2) <*> check e3
 #if __GLASGOW_HASKELL__ >= 900
   check (XCmd (HsWrap _ e)) = check e
-  check (HsCmdLamCase _ e) = check e
 #else
   check (HsCmdWrap _ _ e) = check e
   check XCmd{} = return True
@@ -636,8 +670,15 @@ instance Scope (ArithSeqInfo GhcTc) where
 instance Scope a => Scope (HsRecFields GhcTc a) where
   check HsRecFields {rec_flds = fs} = check fs
 
+
+
+#if __GLASGOW_HASKELL__ >= 904
+instance Scope b => Scope (HsFieldBind a b) where
+  check HsFieldBind{hfbRHS = a} = check a
+#else
 instance Scope b => Scope (HsRecField' a b) where
   check HsRecField{hsRecFieldArg = a} = check a
+#endif
 
 instance Scope (HsTupArg GhcTc) where
   check (Present _ e) = check e
@@ -647,9 +688,14 @@ instance Scope (HsTupArg GhcTc) where
 #endif
 
 instance Scope (HsBindLR GhcTc GhcTc) where
-  check AbsBinds {abs_binds = binds, abs_ev_vars  = ev} = mod `modifyCtxt` check binds
-    where mod c = c { stableTypes= stableTypes c `Set.union`
-                      Set.fromList (mapMaybe (isStableConstr . varType) ev)}
+#if __GLASGOW_HASKELL__ >= 904
+  check (XHsBindsLR AbsBinds {abs_binds = binds, abs_ev_vars  = ev})
+#else
+  check AbsBinds {abs_binds = binds, abs_ev_vars  = ev}
+#endif
+    = mod `modifyCtxt` check binds
+      where mod c = c { stableTypes= stableTypes c `Set.union`
+                        Set.fromList (mapMaybe (isStableConstr . varType) ev)}
   check FunBind{fun_matches= matches, fun_id = L _ v,
 #if __GLASGOW_HASKELL__ >= 900
                 fun_ext = wrapper} =
@@ -850,9 +896,15 @@ isPrimExpr (L _ e) = isPrimExpr' e where
   isPrimExpr' (XExpr (ExpansionExpr (HsExpanded _ e))) = isPrimExpr' e
   isPrimExpr' (HsPragE _ _ e) = isPrimExpr e
 #endif
+#if __GLASGOW_HASKELL__ < 904
   isPrimExpr' (HsTick _ _ e) = isPrimExpr e
-  isPrimExpr' (HsBinTick _ _ _ e) = isPrimExpr e  
+  isPrimExpr' (HsBinTick _ _ _ e) = isPrimExpr e
   isPrimExpr' (HsPar _ e) = isPrimExpr e
+#else
+  isPrimExpr' (XExpr (HsTick _ e)) = isPrimExpr e
+  isPrimExpr' (XExpr (HsBinTick _ _ e)) = isPrimExpr e
+  isPrimExpr' (HsPar _ _ e _) = isPrimExpr e
+#endif
 
   isPrimExpr' _ = Nothing
 
