@@ -101,6 +101,7 @@ instance HasBV (HsBindLR GhcTc GhcTc) where
   getBV PatSynBind{} = Set.empty
 #if __GLASGOW_HASKELL__ < 900
   getBV (XHsBindsLR e) = getBV e
+  getBV (AbsBinds {abs_exports = es}) = Set.fromList (map abe_poly es)
 #elif __GLASGOW_HASKELL__ < 904
   getBV (AbsBinds {abs_exports = es}) = Set.fromList (map abe_poly es)
 #else

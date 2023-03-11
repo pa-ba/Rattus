@@ -644,7 +644,9 @@ instance Scope (HsCmd GhcTc) where
   check (HsCmdLet _ _ bs _ e) = do
 #else
   check (HsCmdPar _ e) = check e
+#if __GLASGOW_HASKELL__ >= 900
   check (HsCmdLamCase _ e) = check e
+#endif
   check (HsCmdLet _ bs e) = do
 #endif
     (l,vs) <- checkBind bs
