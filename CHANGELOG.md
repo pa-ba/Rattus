@@ -1,7 +1,7 @@
 0.5.1
 ---
 
-Compatibility with GHC 9.4 an 9.6
+Compatibility with GHC 9.4 and 9.6
 
 
 0.5.0.1
