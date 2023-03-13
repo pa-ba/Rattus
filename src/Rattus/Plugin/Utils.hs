@@ -24,6 +24,7 @@ module Rattus.Plugin.Utils (
   where
 #if __GLASGOW_HASKELL__ >= 906
 import GHC.Builtin.Types.Prim
+import GHC.Tc.Utils.TcType
 #endif
 #if __GLASGOW_HASKELL__ >= 904
 import qualified GHC.Data.Strict as Strict
