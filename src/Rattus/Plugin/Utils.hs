@@ -33,11 +33,15 @@ import GHC.Utils.Logger
 import GHC.Plugins
 import GHC.Utils.Error
 import GHC.Utils.Monad
+import GHC.Tc.Utils.TcType
+import GHC.Builtin.Types.Prim
 #else
 import GhcPlugins
 import ErrUtils
 import MonadUtils
 #endif
+
+
 
 import Prelude hiding ((<>))
 
@@ -53,6 +57,11 @@ isType (Tick _ e) = isType e
 isType _ = False
 
 
+#if __GLASGOW_HASKELL__ >= 906
+isFunTyCon = isArrowTyCon
+repSplitAppTys = splitAppTysNoView
+#endif
+
 #if __GLASGOW_HASKELL__ >= 902
 printMessage :: (HasDynFlags m, MonadIO m, HasLogger m) =>
                 Severity -> SrcSpan -> SDoc -> m ()
@@ -61,9 +70,14 @@ printMessage :: (HasDynFlags m, MonadIO m) =>
                 Severity -> SrcSpan -> MsgDoc -> m ()
 #endif
 printMessage sev loc doc = do
-#if __GLASGOW_HASKELL__ >= 904
+#if __GLASGOW_HASKELL__ >= 906
   logger <- getLogger
-  liftIO $ putLogMsg logger (logFlags logger) (MCDiagnostic sev (if sev == SevError then ErrorWithoutFlag else WarningWithoutFlag)) loc doc
+  liftIO $ putLogMsg logger (logFlags logger)
+    (MCDiagnostic sev (if sev == SevError then ErrorWithoutFlag else WarningWithoutFlag) Nothing) loc doc
+#elif __GLASGOW_HASKELL__ >= 904
+  logger <- getLogger
+  liftIO $ putLogMsg logger (logFlags logger)
+    (MCDiagnostic sev (if sev == SevError then ErrorWithoutFlag else WarningWithoutFlag)) loc doc
 #elif __GLASGOW_HASKELL__ >= 902
   dflags <- getDynFlags
   logger <- getLogger
@@ -280,7 +294,7 @@ mkSysLocalFromVar lit v = mkSysLocalM lit (varType v)
 
 mkSysLocalFromExpr :: MonadUnique m => FastString -> CoreExpr -> m Id
 #if __GLASGOW_HASKELL__ >= 900
-mkSysLocalFromExpr lit e = mkSysLocalM lit One (exprType e)
+mkSysLocalFromExpr lit e = mkSysLocalM lit oneDataConTy (exprType e)
 #else
 mkSysLocalFromExpr lit e = mkSysLocalM lit (exprType e)
 #endif

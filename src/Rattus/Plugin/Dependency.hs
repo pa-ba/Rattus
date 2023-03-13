@@ -141,19 +141,30 @@ instance HasBV XXPatGhcTc where
 instance HasBV (Pat GhcTc) where
   getBV (VarPat _ (L _ v)) = Set.singleton v
   getBV (LazyPat _ p) = getBV p
+#if __GLASGOW_HASKELL__ >= 906
+  getBV (AsPat _ (L _ v) _ p) = Set.insert v (getBV p)
+#else
   getBV (AsPat _ (L _ v) p) = Set.insert v (getBV p)
+#endif
   getBV (BangPat _ p) = getBV p
   getBV (ListPat _ ps) = getBV ps
   getBV (TuplePat _ ps _) = getBV ps
   getBV (SumPat _ p _ _) = getBV p
   getBV (ViewPat _ _ p) = getBV p
+
   getBV (SplicePat _ sp) =
     case sp of
+#if __GLASGOW_HASKELL__ < 904
       HsTypedSplice _ _ v _ -> Set.singleton v
+      HsSpliced _ _ (HsSplicedPat p) -> getBV p
       HsUntypedSplice _ _ v _ ->  Set.singleton v
       HsQuasiQuote _ p p' _ _ -> Set.fromList [p,p']
-      HsSpliced _ _ (HsSplicedPat p) -> getBV p
       _ -> Set.empty
+#else
+      HsUntypedSpliceExpr _ e -> getFV e
+      HsQuasiQuote _ v _  -> Set.singleton v
+#endif
+
   getBV (NPlusKPat _ (L _ v) _ _ _ _) = Set.singleton v
   getBV (NPat {}) = Set.empty
   getBV (XPat p) = getBV p
@@ -409,7 +420,12 @@ instance HasFV (HsExpr GhcTc) where
 #endif
   getFV (RecordCon {rcon_flds = fs}) = getFV fs
   getFV (ArithSeq _ _ e) = getFV e
+#if __GLASGOW_HASKELL__ >= 906
+  getFV HsTypedSplice{} = Set.empty
+  getFV HsUntypedSplice{} = Set.empty
+#else
   getFV HsSpliceE{} = Set.empty
+#endif
   getFV (HsProc _ _ e) = getFV e
   getFV (HsStatic _ e) = getFV e
   getFV (XExpr e) = getFV e
@@ -433,8 +449,10 @@ instance HasFV (HsExpr GhcTc) where
   getFV HsTcBracketOut {} = Set.empty
 #endif
 
-
-#if __GLASGOW_HASKELL__ >= 808
+#if __GLASGOW_HASKELL__ >= 906
+  getFV (HsAppType _ e _ _) = getFV e
+  getFV (ExprWithTySig _ e _) = getFV e  
+#elif __GLASGOW_HASKELL__ >= 808
   getFV (HsAppType _ e _) = getFV e
   getFV (ExprWithTySig _ e _) = getFV e  
 #else

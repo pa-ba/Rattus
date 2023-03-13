@@ -573,13 +573,21 @@ instance Scope (HsExpr GhcTc) where
 #endif
   check RecordCon { rcon_flds = f} = check f
   check (ArithSeq _ _ e) = check e
+#if __GLASGOW_HASKELL__ >= 906
+  check HsTypedSplice{} = notSupported "Template Haskell"
+  check HsUntypedSplice{} = notSupported "Template Haskell"
+#else
   check HsSpliceE{} = notSupported "Template Haskell"
+#endif
   check (HsProc _ p e) = mod `modifyCtxt` check e
     where mod c = addVars (getBV p) (stabilize StableArr c)
   check (HsStatic _ e) = check e
   check (HsDo _ _ e) = fst <$> checkBind e
   check (XExpr e) = check e
-#if __GLASGOW_HASKELL__ >= 808
+#if __GLASGOW_HASKELL__ >= 906
+  check (HsAppType _ e _ _) = check e
+  check (ExprWithTySig _ e _) = check e
+#elif __GLASGOW_HASKELL__ >= 808
   check (HsAppType _ e _) = check e
   check (ExprWithTySig _ e _) = check e
 #else
@@ -706,7 +714,7 @@ instance Scope (HsBindLR GhcTc GhcTc) where
 #endif
       mod `modifyCtxt` check matches
     where mod c = c { stableTypes= stableTypes c `Set.union`
-                      Set.fromList (stableConstrFromWrapper wrapper)  `Set.union`
+                      Set.fromList (stableConstrFromWrapper' wrapper)  `Set.union`
                       Set.fromList (extractStableConstr (varType v))}
   check PatBind{pat_lhs = lhs, pat_rhs=rhs} = addVars (getBV lhs) `modifyCtxt` check rhs
   check VarBind{var_rhs = rhs} = check rhs
@@ -731,6 +739,15 @@ isStableConstr t =
         _ -> Nothing                           
     _ ->  Nothing
 
+
+
+#if __GLASGOW_HASKELL__ >= 906
+stableConstrFromWrapper' :: (HsWrapper , a) -> [TyVar]
+stableConstrFromWrapper' (x , _) = stableConstrFromWrapper x
+#else
+stableConstrFromWrapper' :: HsWrapper -> [TyVar]
+stableConstrFromWrapper' = stableConstrFromWrapper
+#endif
 
 stableConstrFromWrapper :: HsWrapper -> [TyVar]
 stableConstrFromWrapper (WpCompose v w) = stableConstrFromWrapper v ++ stableConstrFromWrapper w
@@ -882,7 +899,9 @@ isPrimExpr :: GetCtxt => LHsExpr GhcTc -> Maybe (Prim,Var)
 isPrimExpr (L _ e) = isPrimExpr' e where
   isPrimExpr' :: GetCtxt => HsExpr GhcTc -> Maybe (Prim,Var)
   isPrimExpr' (HsVar _ (L _ v)) = fmap (,v) (isPrim v)
-#if __GLASGOW_HASKELL__ >= 808
+#if __GLASGOW_HASKELL__ >= 906
+  isPrimExpr' (HsAppType _ e _ _) = isPrimExpr e
+#elif __GLASGOW_HASKELL__ >= 808
   isPrimExpr' (HsAppType _ e _) = isPrimExpr e
 #else
   isPrimExpr' (HsAppType _ e)   = isPrimExpr e
