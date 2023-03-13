@@ -16,8 +16,8 @@ this [paper](docs/paper.pdf), sections 2 and 3.
 
 # Usage
 
-This library has been tested with GHC versions 8.6, 8.8, 8.10, 9.0 and
-9.2. To install it, issue the following command:
+This library has been tested with GHC versions 8.6 to 9.6. To install
+it, issue the following command:
 
 	cabal install
 	
