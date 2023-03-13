@@ -154,7 +154,7 @@ instance HasBV (Pat GhcTc) where
 
   getBV (SplicePat _ sp) =
     case sp of
-#if __GLASGOW_HASKELL__ < 904
+#if __GLASGOW_HASKELL__ < 906
       HsTypedSplice _ _ v _ -> Set.singleton v
       HsSpliced _ _ (HsSplicedPat p) -> getBV p
       HsUntypedSplice _ _ v _ ->  Set.singleton v

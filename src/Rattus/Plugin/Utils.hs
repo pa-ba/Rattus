@@ -22,6 +22,9 @@ module Rattus.Plugin.Utils (
   getAlt,
   splitForAllTys')
   where
+#if __GLASGOW_HASKELL__ >= 906
+import GHC.Builtin.Types.Prim
+#endif
 #if __GLASGOW_HASKELL__ >= 904
 import qualified GHC.Data.Strict as Strict
 #endif  
@@ -33,8 +36,6 @@ import GHC.Utils.Logger
 import GHC.Plugins
 import GHC.Utils.Error
 import GHC.Utils.Monad
-import GHC.Tc.Utils.TcType
-import GHC.Builtin.Types.Prim
 #else
 import GhcPlugins
 import ErrUtils
