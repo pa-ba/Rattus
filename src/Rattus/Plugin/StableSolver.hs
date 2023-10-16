@@ -81,7 +81,12 @@ stableSolver given _derived wanted = do
     Just evs -> return $ TcPluginOk evs []
     Nothing -> return $ TcPluginOk [] []
 
-  where filterCt ct@(CDictCan {cc_class = cl, cc_tyargs = [ty]})
+  where
+#if __GLASGOW_HASKELL__ >= 908
+        filterCt ct@(CDictCan (DictCt {di_cls = cl, di_tys = [ty]}))
+#else
+        filterCt ct@(CDictCan {cc_class = cl, cc_tyargs = [ty]})
+#endif
           = case getNameModule cl of
               Just (name,mod)
                 | isRattModule mod && name == "Stable" -> [(ty,(ct,cl))]
